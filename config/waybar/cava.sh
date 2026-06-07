@@ -2,7 +2,7 @@
 export LC_ALL=C.UTF-8
 bars=12
 blocks="▁▂▃▄▅▆▇█"
-grace=45
+grace=90
 
 dict="s/;//g"
 i=0

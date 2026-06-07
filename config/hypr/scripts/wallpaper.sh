@@ -186,21 +186,17 @@ else
     # Run imagemagick operations in parallel with optimized settings
     {
         if [ ! "$blur" == "0x0" ] ;then
-            magick "$wallpaper" -filter box -quality 85 -resize 75% -blur $blur "$blurred"
+            magick "$wallpaper" -filter box -quality 85 -resize 75% -blur $blur "$blurred" && cp "$blurred" "$cached_blur"
             echo ":: Created blurred version"
         else
-            magick "$wallpaper" -filter box -quality 85 -resize 75% "$blurred"
+            magick "$wallpaper" -filter box -quality 85 -resize 75% "$blurred" && cp "$blurred" "$cached_blur"
             echo ":: Created resized version"
         fi
-        # Cache the result
-        cp "$blurred" "$cached_blur"
     } &
 
     {
-        magick "$wallpaper" -filter box -quality 85 -gravity Center -extent 1:1 "$square"
+        magick "$wallpaper" -filter box -quality 85 -gravity Center -extent 1:1 "$square" && cp "$square" "$cached_square"
         echo ":: Created square version"
-        # Cache the result
-        cp "$square" "$cached_square"
     } &
 
     # Wait for both operations to complete
