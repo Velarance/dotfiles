@@ -88,7 +88,7 @@ echo ":: Wallpaper: $wallpaper"
 # Set color scheme type (default: scheme-content)
 # Usage: wallpaper.sh [command] [scheme-type]
 # Available types: content, monochrome, neutral, tonal-spot, vibrant, expressive, fidelity, fruit-salad, rainbow
-scheme_type="${2:-vibrant}"
+scheme_type="${2:-content}"
 
 # Map short names to full scheme names
 case "$scheme_type" in
