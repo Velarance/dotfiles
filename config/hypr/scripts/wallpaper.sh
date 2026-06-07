@@ -105,7 +105,7 @@ case "$scheme_type" in
 esac
 
 echo ":: Using color scheme: scheme-$scheme_type"
-matugen image "$wallpaper" --type "scheme-$scheme_type"
+matugen image "$wallpaper" --type "scheme-$scheme_type" --prefer saturation
 
 # ----------------------------------------------------- 
 # get wallpaper image name

@@ -680,7 +680,7 @@ generate_initial_colors() {
     echo "${wallpaper}" > "${HOME}/.cache/current_wallpaper"
 
     # Generate colors
-    matugen image "${wallpaper}" --type scheme-content || print_warning "Matugen color generation failed"
+    matugen image "${wallpaper}" --type scheme-content --prefer saturation || print_warning "Matugen color generation failed"
     print_success "Generated colors from ${wallpaper##*/}"
 
     # Generate rasi file for rofi background
