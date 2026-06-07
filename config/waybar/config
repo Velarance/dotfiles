@@ -19,6 +19,7 @@
     "backlight",
 ],
 	"modules-right":[
+		"custom/focustime",
 		"custom/notification",
 		"network",
 		"wireplumber",
@@ -119,6 +120,12 @@
         "format": "{}",
         "restart-interval": 3,
         "tooltip": false
+    },
+    "custom/focustime": {
+        "exec": "$HOME/dotfiles/config/waybar/focustime-stats.py",
+        "return-type": "json",
+        "interval": 15,
+        "tooltip": true
     },
     "tray": {
         "icon-size": 21,
