@@ -25,7 +25,6 @@
     "cpu",
     "memory",
     "hyprland/language",
-    "tray",
 		"custom/eq",
 		"custom/power"
 		],
