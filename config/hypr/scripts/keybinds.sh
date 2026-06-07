@@ -74,5 +74,5 @@ END {
 }
 ' "$conf"
 
-printf '\n   \033[2mНажми любую клавишу — закрыть\033[0m\n'
+printf '\n   \033[2mPress any key to close\033[0m\n'
 read -rsn1
