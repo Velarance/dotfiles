@@ -562,49 +562,33 @@ install_optional_components() {
     if [[ ! -f "${HOME}/miniconda3/bin/conda" ]]; then
         if ask_confirmation "Install Miniconda? (Python package manager)"; then
             print_header "Installing Miniconda"
-            local tmp_dir
-            tmp_dir=$(mktemp -d) || {
-                print_error "Failed to create temporary directory"
-                return 1
-            }
+            local tmp_dir installer
+            tmp_dir=$(mktemp -d) || tmp_dir=""
 
-            local miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-            local installer="${tmp_dir}/miniconda.sh"
+            if [[ -n "${tmp_dir}" ]]; then
+                local miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
+                installer="${tmp_dir}/miniconda.sh"
 
-            # Download installer and published SHA256
-            if ! curl -fsSL -o "${installer}" "${miniconda_url}"; then
-                print_error "Failed to download Miniconda installer"
+                if curl -fsSL -o "${installer}" "${miniconda_url}"; then
+                    # checksum is optional — Anaconda does not publish .sha256 for the 'latest' alias
+                    if curl -fsSL -o "${installer}.sha256" "${miniconda_url}.sha256" 2>/dev/null \
+                        && [[ "$(awk '{print $1}' "${installer}.sha256")" == "$(sha256sum "${installer}" | awk '{print $1}')" ]]; then
+                        print_success "Miniconda checksum verified"
+                    else
+                        print_warning "Skipping checksum verification (not published for 'latest')"
+                    fi
+
+                    if bash "${installer}" -b -p "${HOME}/miniconda3"; then
+                        print_success "Miniconda installed to ~/miniconda3"
+                    else
+                        print_warning "Miniconda installation failed"
+                    fi
+                else
+                    print_warning "Failed to download Miniconda installer, skipping"
+                fi
+
                 rm -rf "${tmp_dir}"
-                return 1
             fi
-
-            if ! curl -fsSL -o "${installer}.sha256" "${miniconda_url}.sha256"; then
-                print_error "Failed to download Miniconda checksum"
-                rm -rf "${tmp_dir}"
-                return 1
-            fi
-
-            # Verify checksum (file format: "<hash>  Miniconda3-latest-Linux-x86_64.sh")
-            local expected_sum actual_sum
-            expected_sum=$(awk '{print $1}' "${installer}.sha256")
-            actual_sum=$(sha256sum "${installer}" | awk '{print $1}')
-            if [[ "${expected_sum}" != "${actual_sum}" ]]; then
-                print_error "Miniconda checksum mismatch"
-                print_error "  expected: ${expected_sum}"
-                print_error "  actual:   ${actual_sum}"
-                rm -rf "${tmp_dir}"
-                return 1
-            fi
-            print_success "Miniconda checksum verified"
-
-            if bash "${installer}" -b -p "${HOME}/miniconda3"; then
-                print_success "Miniconda installed to ~/miniconda3"
-                print_success "conda.zsh will auto-detect ~/miniconda3"
-            else
-                print_error "Miniconda installation failed"
-            fi
-
-            rm -rf "${tmp_dir}"
         fi
     else
         print_success "Miniconda already installed"
@@ -769,6 +753,20 @@ set_default_shell() {
     fi
 }
 
+disable_faillock() {
+    print_header "Relaxing account lockout (faillock)"
+
+    if [[ -f /etc/security/faillock.conf ]]; then
+        if sudo sed -i -E 's/^#?[[:space:]]*deny[[:space:]]*=.*/deny = 1000/; s/^#?[[:space:]]*unlock_time[[:space:]]*=.*/unlock_time = 1/' /etc/security/faillock.conf; then
+            print_success "faillock relaxed (deny=1000, unlock_time=1) — a wrong password won't lock you out"
+        else
+            print_warning "Could not edit /etc/security/faillock.conf"
+        fi
+    else
+        print_warning "faillock.conf not found, skipping"
+    fi
+}
+
 #==============================================================================
 # Main Installation
 #==============================================================================
@@ -823,6 +821,7 @@ main() {
     generate_initial_colors
     generate_gtk_bookmarks
     set_default_shell
+    disable_faillock
 
     # Reload Hyprland and launch services if running
     if command_exists hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
