@@ -9,8 +9,6 @@ while [ "$i" -lt 8 ]; do
     i=$((i + 1))
 done
 
-silence=$(printf '▁%.0s' $(seq 1 "$bars"))
-
 cfg=$(mktemp)
 trap 'rm -f "$cfg"' EXIT
 cat > "$cfg" <<EOF
@@ -26,10 +24,8 @@ ascii_max_range = 7
 EOF
 
 cava -p "$cfg" | while IFS= read -r line; do
-    out=$(printf '%s' "$line" | sed "$dict")
-    if [ "$out" = "$silence" ]; then
-        printf '\n'
-    else
-        printf '%s\n' "$out"
-    fi
+    case "$line" in
+        *[!0\;]*) printf '%s\n' "$(printf '%s' "$line" | sed "$dict")" ;;
+        *) printf '\n' ;;
+    esac
 done
