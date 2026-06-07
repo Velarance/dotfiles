@@ -104,7 +104,7 @@ fi
 export PATH="$HOME/.npm-global/bin:$PATH"
 
 # bun completions
-[ -s "/home/say8hi/.bun/_bun" ] && source "/home/say8hi/.bun/_bun"
+[ -s "${HOME}/.bun/_bun" ] && source "${HOME}/.bun/_bun"
 
 # bun
 export BUN_INSTALL="$HOME/.bun"
