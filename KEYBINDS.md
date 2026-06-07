@@ -1,29 +1,37 @@
 # Keybinds
 
 Mod key (`$mainMod`) = **SUPER** (Win key).
-Apps resolved from `config/hypr/conf/defaults.conf`: terminal `kitty`, browser `zen-browser`, file manager `nautilus`, editor `mousepad`.
+Apps from `config/hypr/conf/defaults.conf`: browser `zen-browser`, file manager `nautilus`, terminal `kitty`.
+Lines marked **(personal)** are velarance's additions on top of the say8hi defaults.
 
 ## Apps & launcher
 | Keys | Action |
 |------|--------|
-| `CTRL + ALT + T` | Terminal (kitty) |
+| `SUPER + RETURN` | Terminal (kitty) **(personal)** |
+| `SUPER + M` | App launcher (rofi drun) **(personal)** |
 | `SUPER + B` | Browser (zen-browser) |
 | `SUPER + E` | File manager (nautilus) |
-| `ALT + SPACE` | App launcher (rofi drun) |
 | `SUPER + V` | Clipboard history (cliphist) |
+| `SUPER + SHIFT + R` | Wipe clipboard history **(personal)** |
 
 ## Windows
 | Keys | Action |
 |------|--------|
-| `SUPER + C` | Close window |
-| `SUPER + F` | Fullscreen |
+| `SUPER + Q` | Close window **(personal)** |
 | `SUPER + T` | Toggle floating |
 | `SUPER + J` | Toggle split direction (dwindle) |
+| `SUPER + SHIFT + F` | Fullscreen **(personal)** |
 | `SUPER + ←/→/↑/↓` | Move focus |
 | `SUPER + drag LMB` | Move window with mouse |
 | `SUPER + drag RMB` | Resize window with mouse |
 | `SUPER + SHIFT + ←/→/↑/↓` | Resize active window (±100px) |
 | `SUPER + CTRL + ←/→/↑/↓` | Move window in layout |
+
+## Monitors
+| Keys | Action |
+|------|--------|
+| `SUPER + ALT + ←/→` | Focus monitor left/right |
+| `SUPER + ALT + SHIFT + ←/→` | Move window to prev/next monitor |
 
 ## Workspaces
 | Keys | Action |
@@ -33,17 +41,13 @@ Apps resolved from `config/hypr/conf/defaults.conf`: terminal `kitty`, browser `
 | `SUPER + scroll` | Cycle workspaces |
 | `SUPER + PageDown` | Jump to first empty workspace |
 
-## Monitors
-| Keys | Action |
-|------|--------|
-| `SUPER + ALT + ←/→` | Focus monitor left/right |
-| `SUPER + ALT + SHIFT + ←/→` | Move window to prev/next monitor |
-
-## Dropdown terminal (special workspace)
+## Special workspaces
 | Keys | Action |
 |------|--------|
 | `` SUPER + ` `` | Toggle dropdown terminal |
-| `` SUPER + SHIFT + ` `` | Move window to dropdown workspace |
+| `` SUPER + SHIFT + ` `` | Move window to dropdown |
+| `SUPER + S` | Toggle special workspace "magic" **(personal)** |
+| `SUPER + SHIFT + S` | Move window to special "magic" **(personal)** |
 
 ## Screenshots & wallpaper
 | Keys | Action |
@@ -60,7 +64,20 @@ Apps resolved from `config/hypr/conf/defaults.conf`: terminal `kitty`, browser `
 | `ALT + C` | Screenshot → paste & submit into Claude (needs `wtype`, `lsof`) |
 | `SUPER + SHIFT + P` | Open kitty running `claude` (socket `/tmp/kitty-claude`) |
 
-## Media / Fn keys
+## System
+| Keys | Action |
+|------|--------|
+| `SUPER + X` | Lock screen (hyprlock) **(personal)** |
+| `SUPER + CTRL + Q` | Logout menu (wlogout) |
+| `SUPER + SHIFT + Escape` | Exit Hyprland **(personal)** |
+
+## Volume / media (combos)
+| Keys | Action |
+|------|--------|
+| `SUPER + PageUp / PageDown` | Volume up / down (wpctl) **(personal)** |
+| `SUPER + Home` | Mute toggle **(personal)** |
+
+## Hardware / Fn keys
 | Keys | Action |
 |------|--------|
 | Brightness Up/Down | `brightnessctl` ±10% |
@@ -72,11 +89,6 @@ Apps resolved from `config/hypr/conf/defaults.conf`: terminal `kitty`, browser `
 | Lock key | `hyprlock` |
 | XF86Tools | settings menu (`settings.sh`) |
 
-## System
-| Keys | Action |
-|------|--------|
-| `SUPER + CTRL + Q` | Logout menu (wlogout) |
-
 ## VM passthrough
 | Keys | Action |
 |------|--------|
@@ -87,5 +99,6 @@ Apps resolved from `config/hypr/conf/defaults.conf`: terminal `kitty`, browser `
 
 ### Notes
 - Source of truth: `config/hypr/conf/keybinding.conf` and `defaults.conf`.
-- Targets **Hyprland 0.55+**: `SUPER + J` uses `layoutmsg, togglesplit` (the bare `togglesplit` dispatcher was removed); the stale `dwindle:pseudotile` and `misc:vfr` options are gone.
-- Recovery: if the on-screen "config error" overlay appears, run `hyprctl configerrors` from a terminal (or TTY `Ctrl+Alt+F2`) to see the offending file:line.
+- Targets **Hyprland 0.55+**: `SUPER + J` uses `layoutmsg, togglesplit`; the stale `dwindle:pseudotile` and `misc:vfr` options are gone.
+- say8hi defaults replaced by personal keys (and removed): terminal `CTRL+ALT+T` → `SUPER+RETURN`, launcher `ALT+SPACE` → `SUPER+M`, close `SUPER+C` → `SUPER+Q`, fullscreen `SUPER+F` → `SUPER+SHIFT+F`.
+- Recovery: if the on-screen "config error" overlay appears, run `hyprctl configerrors` from a terminal (or TTY `Ctrl+Alt+F2`).
