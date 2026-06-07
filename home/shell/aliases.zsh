@@ -6,6 +6,8 @@
 # Dotfiles management
 alias dotfiles='cd ${HOME}/dotfiles'
 alias dots='cd ${HOME}/dotfiles'
+alias dots-update='${HOME}/dotfiles/scripts/update.sh'
+alias dots-doctor='${HOME}/dotfiles/scripts/doctor.sh'
 alias hyprconf='cd ${HOME}/dotfiles/hypr/conf'
 alias nvimconf='cd ${HOME}/dotfiles/nvim'
 
