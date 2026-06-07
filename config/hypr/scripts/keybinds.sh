@@ -27,6 +27,13 @@ function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/,"",s); return s }
     else if (act ~ /cliphist\.sh/)        act="Clipboard history"
     else if (act ~ /keybinds\.sh/)        act="Show this cheatsheet"
     else if (act ~ /settings\.sh/)        act="Settings"
+    else if (act ~ /\$TERMINAL/)          act="Terminal"
+    else if (act ~ /\$BROWSER/)           act="Browser"
+    else if (act ~ /\$FILEMANAGER/)       act="File manager"
+    else if (act ~ /^wlogout/)            act="Logout menu"
+    else if (act ~ /listen-on.*claude/)   act="Claude in kitty"
+    else if (act ~ /^rofi -show drun/)    act="App launcher"
+    else if (act ~ /^rofi -show window/)  act="Window switcher"
     keys=(mods!=""? mods" + "key : key)
     printf "<b>%-26s</b>  %s\n", keys, act
 }' "$conf" | rofi -dmenu -i -markup-rows -p "  Keybinds" -config "$rofi_conf" >/dev/null
