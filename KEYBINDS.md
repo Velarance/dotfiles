@@ -18,8 +18,8 @@ Lines marked **(personal)** are velarance's additions on top of the say8hi defau
 | Keys | Action |
 |------|--------|
 | `SUPER + Q` | Close window **(personal)** |
-| `SUPER + T` | Toggle floating |
-| `SUPER + J` | Toggle split direction (dwindle) |
+| `SUPER + T` | Toggle split direction (dwindle) |
+| `SUPER + F` | Toggle floating **(personal)** |
 | `SUPER + SHIFT + F` | Fullscreen **(personal)** |
 | `SUPER + ←/→/↑/↓` | Move focus |
 | `SUPER + drag LMB` | Move window with mouse |
