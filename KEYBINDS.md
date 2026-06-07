@@ -11,7 +11,7 @@ Lines marked **(personal)** are velarance's additions on top of the say8hi defau
 | `SUPER + M` | App launcher (rofi drun) **(personal)** |
 | `SUPER + B` | Browser (zen-browser) |
 | `SUPER + E` | File manager (nautilus) |
-| `SUPER + V` | Clipboard history (cliphist) |
+| `SUPER + C` | Clipboard history (cliphist) |
 | `SUPER + SHIFT + R` | Wipe clipboard history **(personal)** |
 
 ## Windows
