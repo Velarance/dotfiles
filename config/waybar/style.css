@@ -156,14 +156,13 @@
   color: @secondary;
 }
 
-#custom-cava {
+#custom-eq {
   margin-left: 5px;
   margin-right: 5px;
   background: @surface;
   border-radius: 5px;
   padding: 4px 12px;
-  font-size: 13px;
-  animation: equalizer 4s ease-in-out infinite;
+  color: @primary;
 }
 
 #custom-focustime {

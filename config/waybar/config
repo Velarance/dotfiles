@@ -11,7 +11,6 @@
 	"modules-left":[
     "hyprland/workspaces",
     "custom/crypto",
-    "custom/cava",
   ],
 "modules-center": [
     "battery",
@@ -27,6 +26,7 @@
     "memory",
     "hyprland/language",
     "tray",
+		"custom/eq",
 		"custom/power"
 		],
 		
@@ -115,11 +115,12 @@
         "exec-if": "command -v waybar-crypto",
         "on-click": "xdg-open https://coinmarketcap.com/"
     },
-    "custom/cava": {
-        "exec": "$HOME/dotfiles/config/waybar/cava.sh",
-        "format": "{}",
-        "restart-interval": 3,
-        "tooltip": false
+    "custom/eq": {
+        "format": "󰋝",
+        "tooltip": true,
+        "tooltip-format": "Equalizer (EasyEffects)",
+        "on-click": "easyeffects",
+        "on-click-right": "easyeffects --gapplication-service"
     },
     "custom/focustime": {
         "exec": "$HOME/dotfiles/config/waybar/focustime-stats.py",
