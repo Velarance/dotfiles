@@ -67,7 +67,7 @@ Lines marked **(personal)** are velarance's additions on top of the say8hi defau
 ## System
 | Keys | Action |
 |------|--------|
-| `SUPER + X` | Lock screen (hyprlock) **(personal)** |
+| `SUPER + X` | Lock screen (loginctl lock-session) **(personal)** |
 | `SUPER + CTRL + Q` | Logout menu (wlogout) |
 | `SUPER + SHIFT + Escape` | Exit Hyprland **(personal)** |
 
