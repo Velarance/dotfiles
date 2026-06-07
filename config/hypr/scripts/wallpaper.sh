@@ -83,6 +83,7 @@ esac
 # Save wallpaper path and generate colors with matugen
 # -----------------------------------------------------
 echo "$wallpaper" > "$cache_file"
+ln -sfn "$wallpaper" "$HOME/.cache/lockscreen-wallpaper"
 echo ":: Wallpaper: $wallpaper"
 
 # Set color scheme type (default: scheme-content)
