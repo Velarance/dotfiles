@@ -40,6 +40,22 @@ input_path = '~/.config/matugen/templates/swayosd-style.css'
 output_path = '~/.config/swayosd/style.css'
 post_hook = "pkill -x swayosd-server; swayosd-server --style ~/.config/swayosd/style.css --top-margin 0.9 & true"
 
+[templates.qt5ct-colors]
+input_path = '~/.config/matugen/templates/qtct-colors.conf'
+output_path = '~/.config/qt5ct/colors/matugen.conf'
+
+[templates.qt6ct-colors]
+input_path = '~/.config/matugen/templates/qtct-colors.conf'
+output_path = '~/.config/qt6ct/colors/matugen.conf'
+
+[templates.qt5ct-style]
+input_path = '~/.config/matugen/templates/qt-style.qss'
+output_path = '~/.config/qt5ct/qss/matugen-style.qss'
+
+[templates.qt6ct-style]
+input_path = '~/.config/matugen/templates/qt-style.qss'
+output_path = '~/.config/qt6ct/qss/matugen-style.qss'
+
 [templates.gtk3-colors]
 input_path = '~/.config/matugen/templates/gtk-3.0-colors.css'
 output_path = '~/dotfiles/config/gtk-3.0/colors.css'

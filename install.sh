@@ -767,6 +767,39 @@ disable_faillock() {
     fi
 }
 
+setup_qt_theme() {
+    print_header "Setting up Qt theming (qt5ct/qt6ct)"
+
+    mkdir -p "${HOME}/.config/qt5ct/colors" "${HOME}/.config/qt5ct/qss"
+    mkdir -p "${HOME}/.config/qt6ct/colors" "${HOME}/.config/qt6ct/qss"
+
+    cat > "${HOME}/.config/qt5ct/qt5ct.conf" <<EOF
+[Appearance]
+color_scheme_path=${HOME}/.config/qt5ct/colors/matugen.conf
+custom_palette=true
+standard_dialogs=default
+style=Fusion
+stylesheets=${HOME}/.config/qt5ct/qss/matugen-style.qss
+
+[Interface]
+stylesheets=${HOME}/.config/qt5ct/qss/matugen-style.qss
+EOF
+
+    cat > "${HOME}/.config/qt6ct/qt6ct.conf" <<EOF
+[Appearance]
+color_scheme_path=${HOME}/.config/qt6ct/colors/matugen.conf
+custom_palette=true
+standard_dialogs=default
+style=Fusion
+stylesheets=${HOME}/.config/qt6ct/qss/matugen-style.qss
+
+[Interface]
+stylesheets=${HOME}/.config/qt6ct/qss/matugen-style.qss
+EOF
+
+    print_success "qt5ct/qt6ct configured (Fusion + matugen palette/qss)"
+}
+
 #==============================================================================
 # Main Installation
 #==============================================================================
@@ -818,6 +851,7 @@ main() {
     setup_sddm
     install_optional_components
     setup_icons
+    setup_qt_theme
     generate_initial_colors
     generate_gtk_bookmarks
     set_default_shell
