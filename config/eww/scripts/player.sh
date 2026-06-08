@@ -2,8 +2,18 @@
 cover="$HOME/.cache/eww-cover"
 D=$'\x1f'
 
-wallblur="$HOME/.cache/blurred_wallpaper.png"
-[ -f "$wallblur" ] || wallblur=""
+wallblur=""
+cw=$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null)
+if [ -n "$cw" ] && [ -f "$cw" ]; then
+    wh=$(md5sum "$cw" | cut -d' ' -f1)
+    wallblur="$HOME/.cache/eww-wallblur-$wh.png"
+    if [ ! -f "$wallblur" ]; then
+        magick "$cw" -resize 560x560^ -gravity center -extent 560x560 \
+            -blur 0x22 -brightness-contrast -25x-10 "$wallblur" 2>/dev/null
+        find "$HOME/.cache" -maxdepth 1 -name 'eww-wallblur-*.png' ! -name "eww-wallblur-$wh.png" -delete 2>/dev/null
+    fi
+    [ -f "$wallblur" ] || wallblur=""
+fi
 
 data=$(playerctl metadata --format "{{status}}${D}{{title}}${D}{{artist}}${D}{{playerName}}${D}{{mpris:artUrl}}${D}{{mpris:length}}" 2>/dev/null)
 if [ -z "$data" ]; then
