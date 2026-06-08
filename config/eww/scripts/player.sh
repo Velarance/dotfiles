@@ -11,6 +11,11 @@ fi
 IFS="$D" read -r status title artist source arturl len_us <<< "$data"
 pos=$(playerctl position 2>/dev/null | cut -d. -f1)
 len_us=${len_us:-0}; pos=${pos:-0}
+[[ "$len_us" =~ ^[0-9]+$ ]] || len_us=0
+
+lc="$HOME/.cache/eww-len-$(printf '%s' "$title" | md5sum | cut -d' ' -f1)"
+if [ "$len_us" -gt 0 ]; then echo "$len_us" > "$lc"; elif [ -f "$lc" ]; then len_us=$(cat "$lc"); fi
+
 len=$(( len_us / 1000000 ))
 [ "$len" -lt 1 ] && len=1
 

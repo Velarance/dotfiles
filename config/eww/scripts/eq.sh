@@ -49,9 +49,12 @@ case "$1" in
         easyeffects -l "$2" >/dev/null 2>&1
         ;;
     set)
-        read -ra G < <(read_gains)
-        G[$2]=$(printf '%.0f' "$3")
-        echo "${G[*]}" > "$STATE"
+        (
+            flock 9
+            read -ra G < <(read_gains)
+            G[$2]=$(printf '%.0f' "$3")
+            echo "${G[*]}" > "$STATE"
+        ) 9>"$HOME/.cache/eww-eq.lock"
         st=$(date +%s%N); echo "$st" > "$STAMP"
         (
             sleep 0.30
