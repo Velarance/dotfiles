@@ -115,7 +115,7 @@
         "on-click": "xdg-open https://coinmarketcap.com/"
     },
     "custom/eq": {
-        "format": "",
+        "format": "\uf1de",
         "tooltip": true,
         "tooltip-format": "Equalizer (EasyEffects)",
         "on-click": "easyeffects",
