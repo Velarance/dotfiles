@@ -630,13 +630,32 @@ install_optional_components() {
         print_success "Docker already installed"
     fi
 
-    # Node.js/npm
-    if ! command_exists node; then
-        if ask_confirmation "Install Node.js? (yay -S nodejs npm)"; then
-            install_optional_tool "Node.js" "nodejs npm"
+    # nvm + Node.js
+    if [[ ! -s "${HOME}/.nvm/nvm.sh" ]]; then
+        if ask_confirmation "Install nvm + Node.js LTS? (Node Version Manager)"; then
+            print_header "Installing nvm"
+            if PROFILE=/dev/null bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'; then
+                export NVM_DIR="${HOME}/.nvm"
+                if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
+                    set +eu
+                    source "${NVM_DIR}/nvm.sh"
+                    nvm install --lts
+                    local node_ok=$?
+                    set -eu
+                    if [[ ${node_ok} -eq 0 ]]; then
+                        print_success "Node.js LTS installed via nvm"
+                    else
+                        print_warning "nvm installed but Node.js install failed"
+                    fi
+                else
+                    print_warning "nvm.sh not found after install"
+                fi
+            else
+                print_warning "nvm installation failed"
+            fi
         fi
     else
-        print_success "Node.js already installed"
+        print_success "nvm already installed"
     fi
 
     echo ""
@@ -854,7 +873,7 @@ main() {
     echo "  • Create symlinks from ${DOTFILES_DIR} to ~/.config/"
     echo "  • Set up SDDM (optional)"
     echo "  • Install shell plugins (optional)"
-    echo "  • Install optional components: Miniconda, Go, Docker, Node.js (optional)"
+    echo "  • Install optional components: Miniconda, Go, Docker, nvm + Node.js (optional)"
     echo "  • Generate initial color scheme"
     echo ""
     echo "Installation log: ${LOG_FILE}"
