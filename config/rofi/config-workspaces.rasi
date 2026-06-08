@@ -19,7 +19,7 @@ configuration {
 
 window {
     location: north;
-    y-offset: 54px;
+    y-offset: 38px;
     width: 560px;
     border: 1px;
     border-color: @outline;
