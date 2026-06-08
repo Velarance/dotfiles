@@ -161,7 +161,7 @@
   margin-right: 5px;
   background: @surface;
   border-radius: 5px;
-  padding: 4px 8px 4px 16px;
+  padding: 4px 12px;
   color: @primary;
 }
 
