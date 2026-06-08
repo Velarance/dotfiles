@@ -18,18 +18,16 @@ configuration {
 }
 
 window {
-    fullscreen: true;
-    background-color: rgba(0, 0, 0, 0.35);
-    padding: 44px 34% 0px 34%;
-    border: 0px;
-}
-
-mainbox {
-    expand: false;
-    background-color: @background;
+    location: north;
+    y-offset: 38px;
+    width: 560px;
     border: 1px;
     border-color: @outline;
     border-radius: 14px;
+    background-color: @background;
+}
+
+mainbox {
     padding: 12px;
     spacing: 8px;
     children: ["prompt", "listview"];
