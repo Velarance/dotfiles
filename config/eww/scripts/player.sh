@@ -3,17 +3,6 @@ cover="$HOME/.cache/eww-cover"
 D=$'\x1f'
 
 wallblur=""
-cw=$(cat "$HOME/.cache/current_wallpaper" 2>/dev/null)
-if [ -n "$cw" ] && [ -f "$cw" ]; then
-    wh=$(md5sum "$cw" | cut -d' ' -f1)
-    wallblur="$HOME/.cache/eww-wallblur-$wh.png"
-    if [ ! -f "$wallblur" ]; then
-        magick "$cw" -resize 560x560^ -gravity center -extent 560x560 \
-            -blur 0x22 -brightness-contrast -25x-10 "$wallblur" 2>/dev/null
-        find "$HOME/.cache" -maxdepth 1 -name 'eww-wallblur-*.png' ! -name "eww-wallblur-$wh.png" -delete 2>/dev/null
-    fi
-    [ -f "$wallblur" ] || wallblur=""
-fi
 
 data=$(playerctl metadata --format "{{status}}${D}{{title}}${D}{{artist}}${D}{{playerName}}${D}{{mpris:artUrl}}${D}{{mpris:length}}" 2>/dev/null)
 if [ -z "$data" ]; then
@@ -46,14 +35,6 @@ esac
 [ -f "$cover" ] || cover=""
 
 blur=""
-if [ -n "$cover" ]; then
-    bh=$(printf '%s' "$arturl" | md5sum | cut -d' ' -f1)
-    blur="$HOME/.cache/eww-blur-$bh.png"
-    [ -f "$blur" ] || magick "$cover" -resize 540x540^ -gravity center -extent 540x540 \
-        -blur 0x18 -brightness-contrast -28x-10 "$blur" 2>/dev/null
-    [ -f "$blur" ] || blur=""
-fi
-[ -n "$blur" ] || blur="$wallblur"
 
 if [ "$status" = "Playing" ]; then playicon=$(printf '⏸'); else playicon=$(printf '▶'); fi
 

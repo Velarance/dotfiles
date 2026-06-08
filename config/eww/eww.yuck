@@ -58,7 +58,6 @@
 
 (defwidget musicpop []
   (box :class "popcontent" :orientation "v" :space-evenly false
-       :style "background-image: linear-gradient(rgba(10,10,14,0.55), rgba(10,10,14,0.55)), url('${PLAYER.blur}');"
     (box :class "playerrow" :space-evenly false
       (cover)
       (box :orientation "v" :space-evenly false :hexpand true :class "playerinfo"
