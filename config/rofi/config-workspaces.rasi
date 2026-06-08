@@ -20,16 +20,12 @@ configuration {
 window {
     fullscreen: true;
     background-color: rgba(0, 0, 0, 0.35);
-    padding: 44px 0px 0px 0px;
+    padding: 44px 34% 0px 34%;
     border: 0px;
-    children: ["dummytop", "menu", "dummybot"];
 }
 
-dummytop { expand: false; }
-
-menu {
+mainbox {
     expand: false;
-    orientation: vertical;
     background-color: @background;
     border: 1px;
     border-color: @outline;
@@ -38,8 +34,6 @@ menu {
     spacing: 8px;
     children: ["prompt", "listview"];
 }
-
-dummybot { expand: true; }
 
 prompt {
     enabled: true;
