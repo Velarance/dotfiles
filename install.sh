@@ -563,7 +563,7 @@ install_optional_components() {
         if ask_confirmation "Install pyenv? (Python version manager)"; then
             print_header "Installing pyenv"
             if command_exists yay; then
-                yay -S --needed --noconfirm base-devel openssl zlib xz tk libffi \
+                yay -S --needed --noconfirm base-devel openssl xz tk libffi \
                     || print_warning "Some Python build dependencies failed to install"
             fi
             if curl -fsSL https://pyenv.run | bash; then
