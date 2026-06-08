@@ -640,6 +640,26 @@ install_optional_components() {
         print_success "nvm already installed"
     fi
 
+    # Flatpak + Flathub
+    flatpak_post_install() {
+        if sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo; then
+            print_success "Flathub remote added"
+        else
+            print_warning "Failed to add Flathub remote"
+        fi
+    }
+
+    if ! command_exists flatpak; then
+        if ask_confirmation "Install Flatpak + Flathub? (yay -S flatpak)"; then
+            install_optional_tool "Flatpak" "flatpak" flatpak_post_install
+        fi
+    else
+        print_success "Flatpak already installed"
+        if ! flatpak remotes 2>/dev/null | grep -q '^flathub'; then
+            flatpak_post_install
+        fi
+    fi
+
     echo ""
     print_success "Optional components setup complete"
 }
@@ -932,7 +952,7 @@ main() {
     echo "  • Create symlinks from ${DOTFILES_DIR} to ~/.config/"
     echo "  • Set up SDDM (optional)"
     echo "  • Install shell plugins (optional)"
-    echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js (optional)"
+    echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js, Flatpak (optional)"
     echo "  • Create a btrfs swapfile, auto-sized (optional)"
     echo "  • Generate initial color scheme"
     echo ""
