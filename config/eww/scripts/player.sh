@@ -2,9 +2,12 @@
 cover="$HOME/.cache/eww-cover"
 D=$'\x1f'
 
+wallblur="$HOME/.cache/blurred_wallpaper.png"
+[ -f "$wallblur" ] || wallblur=""
+
 data=$(playerctl metadata --format "{{status}}${D}{{title}}${D}{{artist}}${D}{{playerName}}${D}{{mpris:artUrl}}${D}{{mpris:length}}" 2>/dev/null)
 if [ -z "$data" ]; then
-    jq -nc '{status:"Stopped",title:"Nothing playing",artist:"",source:"",art:"",blur:"",posstr:"00:00",lenstr:"00:00",pos:0,len:1,playicon:"▶"}'
+    jq -nc --arg blur "$wallblur" '{status:"Stopped",title:"Nothing playing",artist:"",source:"",art:"",blur:$blur,posstr:"00:00",lenstr:"00:00",pos:0,len:1,playicon:"▶"}'
     exit 0
 fi
 
@@ -40,6 +43,7 @@ if [ -n "$cover" ]; then
         -blur 0x18 -brightness-contrast -28x-10 "$blur" 2>/dev/null
     [ -f "$blur" ] || blur=""
 fi
+[ -n "$blur" ] || blur="$wallblur"
 
 if [ "$status" = "Playing" ]; then playicon=$(printf '⏸'); else playicon=$(printf '▶'); fi
 
