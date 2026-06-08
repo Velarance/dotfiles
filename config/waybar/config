@@ -112,7 +112,7 @@
     "custom/eq": {
         "format": "\uf1de",
         "tooltip": true,
-        "tooltip-format": "Music & Equalizer",
+        "tooltip-format": "Music &amp; Equalizer",
         "on-click": "~/.config/eww/scripts/toggle.sh",
         "on-click-right": "easyeffects"
     },
