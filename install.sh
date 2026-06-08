@@ -847,6 +847,83 @@ EOF
     print_success "EasyEffects primed (routed EQ, equalizer in chain, EQ presets installed, no tray)"
 }
 
+setup_btrfs_swap() {
+    print_header "Setting up btrfs swapfile"
+
+    if [[ "$(findmnt -no FSTYPE / 2>/dev/null)" != "btrfs" ]]; then
+        print_warning "Root filesystem is not btrfs, skipping swapfile"
+        return 0
+    fi
+
+    if swapon --show=NAME --noheadings 2>/dev/null | grep -q '/swap/swapfile'; then
+        print_success "btrfs swapfile already active, skipping"
+        return 0
+    fi
+
+    if ! command_exists btrfs || ! btrfs filesystem mkswapfile --help >/dev/null 2>&1; then
+        print_warning "btrfs mkswapfile unavailable (needs btrfs-progs >= 6.1), skipping"
+        return 0
+    fi
+
+    local ram_kb ram_gb rec
+    ram_kb=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+    ram_gb=$(awk "BEGIN{printf \"%.1f\", ${ram_kb}/1048576}")
+    rec=$(awk "BEGIN{r=${ram_kb}/1048576; v=r+sqrt(r); printf \"%d\", (v==int(v)?v:int(v)+1)}")
+
+    echo "Detected RAM: ${ram_gb} GiB"
+    echo "Recommended:  ${rec} GiB (RAM + headroom, enough to hibernate)"
+    if ! ask_confirmation "Create an on-disk btrfs swapfile?"; then
+        return 0
+    fi
+
+    local size
+    read -rp "$(echo -e "${YELLOW}?${NC}") Swapfile size in GiB [${rec}]: " size
+    size="${size:-$rec}"
+    if ! [[ "${size}" =~ ^[0-9]+$ ]] || [[ "${size}" -lt 1 ]]; then
+        print_warning "Invalid size '${size}', using recommended ${rec} GiB"
+        size="${rec}"
+    fi
+
+    local dev uuid tmp
+    dev=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
+    uuid=$(findmnt -no UUID /)
+
+    tmp=$(mktemp -d)
+    if ! sudo mount -o subvolid=5 "${dev}" "${tmp}"; then
+        print_error "Failed to mount btrfs top-level subvolume"
+        rmdir "${tmp}" 2>/dev/null || true
+        return 1
+    fi
+    if [[ ! -d "${tmp}/@swap" ]]; then
+        if ! sudo btrfs subvolume create "${tmp}/@swap"; then
+            print_error "Failed to create @swap subvolume"
+            sudo umount "${tmp}"; rmdir "${tmp}" 2>/dev/null || true
+            return 1
+        fi
+    fi
+    sudo umount "${tmp}"; rmdir "${tmp}" 2>/dev/null || true
+
+    sudo mkdir -p /swap
+    if ! grep -qE 'subvol=/?@swap' /etc/fstab; then
+        echo "UUID=${uuid} /swap btrfs noatime,subvol=@swap 0 0" | sudo tee -a /etc/fstab >/dev/null
+    fi
+    mountpoint -q /swap || sudo mount /swap
+
+    if [[ ! -e /swap/swapfile ]]; then
+        if ! sudo btrfs filesystem mkswapfile --size "${size}g" /swap/swapfile; then
+            print_error "mkswapfile failed"
+            return 1
+        fi
+    fi
+    sudo swapon /swap/swapfile 2>/dev/null || true
+
+    if ! grep -q '/swap/swapfile' /etc/fstab; then
+        echo "/swap/swapfile none swap defaults 0 0" | sudo tee -a /etc/fstab >/dev/null
+    fi
+
+    print_success "btrfs swapfile ready: ${size} GiB at /swap/swapfile (zram swap, if present, stays primary)"
+}
+
 #==============================================================================
 # Main Installation
 #==============================================================================
@@ -874,6 +951,7 @@ main() {
     echo "  • Set up SDDM (optional)"
     echo "  • Install shell plugins (optional)"
     echo "  • Install optional components: Miniconda, Go, Docker, nvm + Node.js (optional)"
+    echo "  • Create a btrfs swapfile, auto-sized (optional)"
     echo "  • Generate initial color scheme"
     echo ""
     echo "Installation log: ${LOG_FILE}"
@@ -900,6 +978,7 @@ main() {
     setup_icons
     setup_qt_theme
     setup_easyeffects
+    setup_btrfs_swap
     generate_initial_colors
     generate_gtk_bookmarks
     set_default_shell
