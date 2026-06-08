@@ -5,6 +5,10 @@
   font-family: "FiraCode Nerd Font", "JetBrains Mono", sans-serif;
 }
 
+.backdrop {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
 .popcontent {
   background-color: rgba($background, 0.4);
   background-size: cover;
