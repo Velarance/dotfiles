@@ -293,6 +293,22 @@ backup_existing_configs() {
     fi
 }
 
+link_dotfiles_home() {
+    print_header "Linking ~/dotfiles"
+
+    local target="${HOME}/dotfiles"
+    if [[ "${DOTFILES_DIR}" == "${target}" ]]; then
+        print_success "repo already at ~/dotfiles"
+        return 0
+    fi
+    if [[ -e "${target}" && ! -L "${target}" ]]; then
+        print_warning "${target} exists and is not a symlink — configs reference ~/dotfiles; move it aside and re-run"
+        return 0
+    fi
+    ln -sfn "${DOTFILES_DIR}" "${target}"
+    print_success "Linked ~/dotfiles -> ${DOTFILES_DIR}"
+}
+
 create_symlinks() {
     print_header "Creating symlinks"
 
@@ -339,9 +355,7 @@ setup_local_config() {
         if [[ -f "${example_conf}" ]]; then
             mv "${example_conf}" "${local_conf}"
             print_success "Created local.conf from example"
-            print_warning "Edit ~/.config/hypr/conf/local.conf to customize:"
-            echo "  • Add COINMARKETCAP_API_KEY for waybar-crypto"
-            echo "  • Uncomment hyprsplit config for desktop setup"
+            print_warning "Edit ~/.config/hypr/conf/local.conf for per-machine overrides (monitors, hyprsplit, env)"
         else
             print_warning "local.conf.example not found, skipping"
         fi
@@ -824,9 +838,12 @@ EOF
 setup_easyeffects() {
     print_header "Setting up EasyEffects (routed EQ)"
 
+    mkdir -p "${HOME}/.config/easyeffects/output"
+    cp -n "${DOTFILES_DIR}/config/easyeffects/output/"*.json "${HOME}/.config/easyeffects/output/" 2>/dev/null || true
+
     local rc="${HOME}/.config/easyeffects/db/easyeffectsrc"
     if [[ -f "${rc}" ]]; then
-        print_success "EasyEffects config already exists, leaving it untouched"
+        print_success "EasyEffects presets synced; existing config left untouched"
         return 0
     fi
 
@@ -839,14 +856,14 @@ bypass=false
 processAllOutputs=true
 showTrayIcon=false
 
+[Presets]
+lastLoadedOutputPreset=Classic
+
 [StreamOutputs]
 plugins=equalizer#0
 EOF
 
-    mkdir -p "${HOME}/.config/easyeffects/output"
-    cp -n "${DOTFILES_DIR}/config/easyeffects/output/"*.json "${HOME}/.config/easyeffects/output/" 2>/dev/null || true
-
-    print_success "EasyEffects primed (routed EQ, equalizer in chain, EQ presets installed, no tray)"
+    print_success "EasyEffects primed (routed EQ, Classic default, presets installed, no tray)"
 }
 
 setup_btrfs_swap() {
@@ -966,6 +983,7 @@ main() {
 
     # Run installation steps
     check_requirements
+    link_dotfiles_home
     check_arch
     check_yay
     check_dependencies

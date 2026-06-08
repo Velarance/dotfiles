@@ -20,7 +20,7 @@ git fetch --quiet 2>/dev/null
 upstream=$(git rev-parse --abbrev-ref '@{u}' 2>/dev/null)
 if [[ -z "$upstream" ]]; then
     warn "no remote tracking branch set — can't pull updates"
-    echo  "    set your fork:  git -C ~/dotfiles remote set-url origin <your-repo> && git -C ~/dotfiles branch --set-upstream-to=origin/master"
+    echo  "    set your fork:  git -C ~/dotfiles remote set-url origin <your-repo> && git -C ~/dotfiles branch --set-upstream-to=origin/main"
     exit 0
 fi
 

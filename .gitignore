@@ -17,6 +17,8 @@ config/gtk-4.0/colors.css
 config/swaync/style.css
 config/btop/themes/matugen.theme
 config/yazi/theme.toml
+config/eww/colors.scss
+config/nvim/lua/colors/matugen.lua
 
 # Device-specific configuration - never commit
 config/hypr/conf/local.conf

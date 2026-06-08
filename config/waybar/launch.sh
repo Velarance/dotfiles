@@ -4,14 +4,12 @@
 if [ -f $HOME/.cache/waybar-disabled ]; then
     killall waybar
     pkill waybar
-    pkill cava
     exit 1
 fi
 
-# Quit all running waybar instances and related processes
+# Quit all running waybar instances
 killall waybar
 pkill waybar
-pkill cava
 sleep 0.2
 
 # Check if battery exists (laptop detection)

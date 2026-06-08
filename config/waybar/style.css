@@ -51,7 +51,6 @@
 #battery,
 #backlight,
 #custom-power,
-#custom-crypto,
 #tray,
 #custom-notification {
   margin-left: 5px;
@@ -98,7 +97,6 @@
 #workspaces,
 #custom-power,
 #battery,
-#custom-crypto,
 #tray,
 #custom-notification {
   border-radius: 5px;
@@ -119,10 +117,6 @@
 #custom-power:hover {
   background: @error;
   color: @surface;
-}
-
-#custom-crypto {
-  font-family: cryptofont;
 }
 
 @keyframes equalizer {
@@ -153,7 +147,6 @@
   color: @primary;
 }
 
-#custom-crypto,
 #cpu,
 #memory,
 #custom-language,
