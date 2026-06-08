@@ -821,7 +821,11 @@ showTrayIcon=false
 [StreamOutputs]
 plugins=equalizer#0
 EOF
-    print_success "EasyEffects primed (processes all output, equalizer in chain, no tray)"
+
+    mkdir -p "${HOME}/.config/easyeffects/output"
+    cp -n "${DOTFILES_DIR}/config/easyeffects/output/"*.json "${HOME}/.config/easyeffects/output/" 2>/dev/null || true
+
+    print_success "EasyEffects primed (routed EQ, equalizer in chain, EQ presets installed, no tray)"
 }
 
 #==============================================================================
