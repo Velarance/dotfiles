@@ -1,5 +1,7 @@
-(defpoll PLAYER :interval "1s" :initial "{\"status\":\"Stopped\",\"title\":\"Nothing playing\",\"artist\":\"\",\"source\":\"\",\"art\":\"\",\"blur\":\"\",\"posstr\":\"00:00\",\"lenstr\":\"00:00\",\"pos\":0,\"len\":1,\"playicon\":\"▶\"}" `~/.config/eww/scripts/player.sh`)
-(defpoll EQ :interval "2s" :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
+(defvar winopen false)
+
+(defpoll PLAYER :interval "1s" :run-while winopen :initial "{\"status\":\"Stopped\",\"title\":\"Nothing playing\",\"artist\":\"\",\"source\":\"\",\"art\":\"\",\"blur\":\"\",\"posstr\":\"00:00\",\"lenstr\":\"00:00\",\"pos\":0,\"len\":1,\"playicon\":\"▶\"}" `~/.config/eww/scripts/player.sh`)
+(defpoll EQ :interval "3s" :run-while winopen :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
 
 (defwidget cover []
   (box :valign "center" :halign "center" :vexpand false
@@ -19,7 +21,7 @@
 (defwidget seekbar []
   (box :orientation "v" :space-evenly false :class "seekbox"
     (scale :class "seek" :min 0 :max {PLAYER.len} :value {PLAYER.pos}
-           :onchange "playerctl position {}")
+           :onchange "~/.config/eww/scripts/seek.sh {}")
     (box :orientation "h" :class "times"
       (label :halign "start" :hexpand true :text {PLAYER.posstr})
       (label :halign "end" :text {PLAYER.lenstr}))))

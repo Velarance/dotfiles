@@ -4,6 +4,7 @@ export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 export DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-unix:path=$XDG_RUNTIME_DIR/bus}"
 
 STATE="$HOME/.cache/eww-eq-gains"
+STAMP="$HOME/.cache/eww-eq-stamp"
 OUTDIR="$HOME/.config/easyeffects/output"
 
 declare -A PRESETS=(
@@ -23,10 +24,10 @@ write_custom() {
     python3 - "$OUTDIR" "$@" <<'PY'
 import json, sys
 out = sys.argv[1]
-gains = [float(x) for x in sys.argv[2:12]]
+gains = [round(float(x)) for x in sys.argv[2:12]]
 FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 def band(f, g):
-    return {"frequency": float(f), "gain": g, "mode": "RLC (BT)", "mute": False,
+    return {"frequency": float(f), "gain": float(g), "mode": "RLC (BT)", "mute": False,
             "q": 4.3, "slope": "x1", "solo": False, "type": "Bell", "width": 4.0}
 ch = {f"band{i}": band(FREQS[i], gains[i]) for i in range(10)}
 eq = {"balance": 0.0, "bypass": False, "input-gain": 0.0, "output-gain": 0.0,
@@ -45,10 +46,16 @@ case "$1" in
         ;;
     set)
         read -ra G < <(read_gains)
-        G[$2]="$3"
+        G[$2]=$(printf '%.0f' "$3")
         echo "${G[*]}" > "$STATE"
-        write_custom "${G[@]}"
-        easyeffects -l Custom >/dev/null 2>&1
+        st=$(date +%s%N); echo "$st" > "$STAMP"
+        (
+            sleep 0.30
+            [ "$(cat "$STAMP" 2>/dev/null)" = "$st" ] || exit 0
+            read -ra GG < <(read_gains)
+            write_custom "${GG[@]}"
+            easyeffects -l Custom >/dev/null 2>&1
+        ) &
         ;;
     bypass)
         easyeffects --bypass-toggle >/dev/null 2>&1

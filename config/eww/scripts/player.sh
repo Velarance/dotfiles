@@ -1,17 +1,14 @@
 #!/bin/bash
 cover="$HOME/.cache/eww-cover"
+D=$'\x1f'
 
-status=$(playerctl status 2>/dev/null)
-if [ -z "$status" ]; then
+data=$(playerctl metadata --format "{{status}}${D}{{title}}${D}{{artist}}${D}{{playerName}}${D}{{mpris:artUrl}}${D}{{mpris:length}}" 2>/dev/null)
+if [ -z "$data" ]; then
     jq -nc '{status:"Stopped",title:"Nothing playing",artist:"",source:"",art:"",blur:"",posstr:"00:00",lenstr:"00:00",pos:0,len:1,playicon:"▶"}'
     exit 0
 fi
 
-title=$(playerctl metadata title 2>/dev/null)
-artist=$(playerctl metadata artist 2>/dev/null)
-source=$(playerctl metadata --format '{{playerName}}' 2>/dev/null)
-arturl=$(playerctl metadata mpris:artUrl 2>/dev/null)
-len_us=$(playerctl metadata mpris:length 2>/dev/null)
+IFS="$D" read -r status title artist source arturl len_us <<< "$data"
 pos=$(playerctl position 2>/dev/null | cut -d. -f1)
 len_us=${len_us:-0}; pos=${pos:-0}
 len=$(( len_us / 1000000 ))
