@@ -1,89 +1,68 @@
 @import "~/.cache/colors-rofi.rasi"
 
 configuration {
+    kb-row-left:          "Left";
+    kb-row-right:         "Right";
     kb-move-char-back:    "Control+b";
     kb-move-char-forward: "Control+f";
-    kb-row-up:            "Up,Left";
-    kb-row-down:          "Down,Right";
     kb-accept-entry:      "Return,KP_Enter";
 }
 
 * {
-    font: "Fira Sans 12";
+    font: "FiraCode Nerd Font 14";
+    background-color: transparent;
+    text-color: @foreground;
+    margin: 0px;
+    padding: 0px;
+    spacing: 0px;
 }
 
 window {
-    location: center;
-    anchor: center;
-    width: 440px;
+    location: north;
+    y-offset: 54px;
+    width: 560px;
     border: 1px;
     border-color: @outline;
-    border-radius: 18px;
+    border-radius: 14px;
     background-color: @background;
-    padding: 0px;
 }
 
 mainbox {
-    orientation: vertical;
-    padding: 16px;
-    spacing: 12px;
-    border: 0px;
-    background-color: transparent;
-    children: ["inputbar", "listview"];
-}
-
-inputbar {
-    children: ["prompt", "entry"];
-    spacing: 12px;
-    padding: 11px 16px;
-    border: 0px;
-    border-radius: 14px;
-    background-color: @background-alt;
-    text-color: @foreground;
+    padding: 12px;
+    spacing: 8px;
+    children: ["prompt", "listview"];
 }
 
 prompt {
+    enabled: true;
+    padding: 2px 6px 6px 6px;
     text-color: @color11;
-    font: "Fira Sans Bold 12";
-    background-color: transparent;
-}
-
-entry {
-    placeholder: "filter / ← →";
-    placeholder-color: @foreground;
-    text-color: @foreground;
-    background-color: transparent;
-    cursor: text;
+    font: "Fira Sans Bold 11";
 }
 
 listview {
-    layout: vertical;
-    lines: 14;
-    columns: 1;
-    dynamic: true;
-    cycle: true;
-    scrollbar: false;
-    border: 0px;
-    spacing: 3px;
+    columns: 10;
+    lines: 1;
+    fixed-height: false;
+    spacing: 6px;
     background-color: transparent;
 }
 
 element {
-    padding: 9px 16px;
-    border: 0px;
-    border-radius: 10px;
+    orientation: horizontal;
+    padding: 12px 0px;
+    border-radius: 9px;
+    background-color: @background-alt;
+    text-color: @foreground;
     cursor: pointer;
 }
 
-element normal.normal    { background-color: transparent; text-color: @foreground; }
-element alternate.normal { background-color: transparent; text-color: @foreground; }
-element selected.normal  { background-color: @selected;   text-color: @onselected; }
-element normal.urgent    { background-color: transparent; text-color: @color11; padding: 14px 8px 4px 8px; }
-element selected.urgent  { background-color: transparent; text-color: @color11; padding: 14px 8px 4px 8px; }
+element selected.normal,
+element selected.active { background-color: @selected; text-color: @onselected; }
+element normal.active   { text-color: @color11; }
 
 element-text {
-    background-color: transparent;
     text-color: inherit;
+    horizontal-align: 0.5;
     vertical-align: 0.5;
-    font: "FiraCode Nerd Font 12";
 }
