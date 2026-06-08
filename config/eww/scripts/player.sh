@@ -3,7 +3,7 @@ cover="$HOME/.cache/eww-cover"
 
 status=$(playerctl status 2>/dev/null)
 if [ -z "$status" ]; then
-    jq -nc '{status:"Stopped",title:"Nothing playing",artist:"",source:"",art:"",posstr:"00:00",lenstr:"00:00",pos:0,len:1,playicon:""}'
+    jq -nc '{status:"Stopped",title:"Nothing playing",artist:"",source:"",art:"",posstr:"00:00",lenstr:"00:00",pos:0,len:1,playicon:"▶"}'
     exit 0
 fi
 
