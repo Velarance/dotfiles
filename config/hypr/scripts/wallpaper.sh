@@ -10,7 +10,7 @@ square="$HOME/.cache/square_wallpaper.png"
 rasi_file="$HOME/.cache/current_wallpaper.rasi"
 
 # Use blur settings from env
-blur="$BLUR"
+blur="${BLUR:-50x30}"
 
 # Create cache file if not exists
 if [ ! -f $cache_file ] ;then
@@ -186,10 +186,10 @@ else
     # Run imagemagick operations in parallel with optimized settings
     {
         if [ ! "$blur" == "0x0" ] ;then
-            magick "$wallpaper" -filter box -quality 85 -resize 75% -blur $blur "$blurred" && cp "$blurred" "$cached_blur"
+            magick "$wallpaper" -filter box -quality 85 -resize 900x -blur $blur "$blurred" && cp "$blurred" "$cached_blur"
             echo ":: Created blurred version"
         else
-            magick "$wallpaper" -filter box -quality 85 -resize 75% "$blurred" && cp "$blurred" "$cached_blur"
+            magick "$wallpaper" -filter box -quality 85 -resize 900x "$blurred" && cp "$blurred" "$cached_blur"
             echo ":: Created resized version"
         fi
     } &

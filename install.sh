@@ -705,7 +705,7 @@ generate_initial_colors() {
     # Generate rasi file for rofi background
     local blurred="${HOME}/.cache/blurred_wallpaper.png"
     if command_exists magick; then
-        magick "${wallpaper}" -filter box -quality 85 -resize 75% -blur 50x30 "${blurred}" 2>/dev/null
+        magick "${wallpaper}" -filter box -quality 85 -resize 900x -blur 50x30 "${blurred}" 2>/dev/null
     else
         cp "${wallpaper}" "${blurred}"
     fi
