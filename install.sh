@@ -800,6 +800,30 @@ EOF
     print_success "qt5ct/qt6ct configured (Fusion + matugen palette/qss)"
 }
 
+setup_easyeffects() {
+    print_header "Setting up EasyEffects (routed EQ)"
+
+    local rc="${HOME}/.config/easyeffects/db/easyeffectsrc"
+    if [[ -f "${rc}" ]]; then
+        print_success "EasyEffects config already exists, leaving it untouched"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${rc}")"
+    cat > "${rc}" <<'EOF'
+[EffectsPipelines]
+bypass=false
+
+[Main]
+processAllOutputs=true
+showTrayIcon=false
+
+[StreamOutputs]
+plugins=equalizer#0
+EOF
+    print_success "EasyEffects primed (processes all output, equalizer in chain, no tray)"
+}
+
 #==============================================================================
 # Main Installation
 #==============================================================================
@@ -852,6 +876,7 @@ main() {
     install_optional_components
     setup_icons
     setup_qt_theme
+    setup_easyeffects
     generate_initial_colors
     generate_gtk_bookmarks
     set_default_shell
