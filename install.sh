@@ -558,40 +558,22 @@ install_optional_components() {
     echo "The following components are optional and can enhance your workflow:"
     echo ""
 
-    # Miniconda
-    if [[ ! -f "${HOME}/miniconda3/bin/conda" ]]; then
-        if ask_confirmation "Install Miniconda? (Python package manager)"; then
-            print_header "Installing Miniconda"
-            local tmp_dir installer
-            tmp_dir=$(mktemp -d) || tmp_dir=""
-
-            if [[ -n "${tmp_dir}" ]]; then
-                local miniconda_url="https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh"
-                installer="${tmp_dir}/miniconda.sh"
-
-                if curl -fsSL -o "${installer}" "${miniconda_url}"; then
-                    # checksum is optional — Anaconda does not publish .sha256 for the 'latest' alias
-                    if curl -fsSL -o "${installer}.sha256" "${miniconda_url}.sha256" 2>/dev/null \
-                        && [[ "$(awk '{print $1}' "${installer}.sha256")" == "$(sha256sum "${installer}" | awk '{print $1}')" ]]; then
-                        print_success "Miniconda checksum verified"
-                    else
-                        print_warning "Skipping checksum verification (not published for 'latest')"
-                    fi
-
-                    if bash "${installer}" -b -p "${HOME}/miniconda3"; then
-                        print_success "Miniconda installed to ~/miniconda3"
-                    else
-                        print_warning "Miniconda installation failed"
-                    fi
-                else
-                    print_warning "Failed to download Miniconda installer, skipping"
-                fi
-
-                rm -rf "${tmp_dir}"
+    # pyenv
+    if [[ ! -d "${HOME}/.pyenv" ]] && ! command_exists pyenv; then
+        if ask_confirmation "Install pyenv? (Python version manager)"; then
+            print_header "Installing pyenv"
+            if command_exists yay; then
+                yay -S --needed --noconfirm base-devel openssl zlib xz tk libffi \
+                    || print_warning "Some Python build dependencies failed to install"
+            fi
+            if curl -fsSL https://pyenv.run | bash; then
+                print_success "pyenv installed to ~/.pyenv"
+            else
+                print_warning "pyenv installation failed"
             fi
         fi
     else
-        print_success "Miniconda already installed"
+        print_success "pyenv already installed"
     fi
 
     # Go
@@ -950,7 +932,7 @@ main() {
     echo "  • Create symlinks from ${DOTFILES_DIR} to ~/.config/"
     echo "  • Set up SDDM (optional)"
     echo "  • Install shell plugins (optional)"
-    echo "  • Install optional components: Miniconda, Go, Docker, nvm + Node.js (optional)"
+    echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js (optional)"
     echo "  • Create a btrfs swapfile, auto-sized (optional)"
     echo "  • Generate initial color scheme"
     echo ""
