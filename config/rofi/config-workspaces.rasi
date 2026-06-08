@@ -61,9 +61,12 @@ element {
     cursor: pointer;
 }
 
+element normal.normal,
+element alternate.normal { background-color: @background-alt; text-color: @foreground; }
 element selected.normal,
-element selected.active { background-color: @selected; text-color: @onselected; }
-element normal.active   { text-color: @color11; }
+element selected.active  { background-color: @selected; text-color: @onselected; }
+element normal.active,
+element alternate.active { background-color: @background-alt; text-color: @color11; }
 
 element-text {
     text-color: inherit;
