@@ -3,18 +3,19 @@
 configuration {
     kb-move-char-back:    "Control+b";
     kb-move-char-forward: "Control+f";
-    kb-element-next:      "Right,Tab";
-    kb-element-prev:      "Left,ISO_Left_Tab";
+    kb-row-up:            "Up,Left";
+    kb-row-down:          "Down,Right";
     kb-accept-entry:      "Return,KP_Enter";
 }
 
 * {
-    font: "Fira Sans 13";
+    font: "Fira Sans 12";
 }
 
 window {
     location: center;
     anchor: center;
+    width: 440px;
     border: 1px;
     border-color: @outline;
     border-radius: 18px;
@@ -24,32 +25,31 @@ window {
 
 mainbox {
     orientation: vertical;
-    padding: 18px;
-    spacing: 14px;
+    padding: 16px;
+    spacing: 12px;
+    border: 0px;
     background-color: transparent;
     children: ["inputbar", "listview"];
 }
 
 inputbar {
-    enabled: true;
     children: ["prompt", "entry"];
     spacing: 12px;
-    padding: 10px 18px;
-    border-radius: 24px;
+    padding: 11px 16px;
+    border: 0px;
+    border-radius: 14px;
     background-color: @background-alt;
     text-color: @foreground;
 }
 
 prompt {
-    enabled: true;
-    str: "Workspaces";
     text-color: @color11;
     font: "Fira Sans Bold 12";
     background-color: transparent;
 }
 
 entry {
-    placeholder: "← →  switch · Enter";
+    placeholder: "filter / ← →";
     placeholder-color: @foreground;
     text-color: @foreground;
     background-color: transparent;
@@ -57,31 +57,33 @@ entry {
 }
 
 listview {
-    flow: horizontal;
-    lines: 1;
-    columns: 25;
+    layout: vertical;
+    lines: 14;
+    columns: 1;
+    dynamic: true;
     cycle: true;
     scrollbar: false;
-    spacing: 10px;
+    border: 0px;
+    spacing: 3px;
     background-color: transparent;
 }
 
 element {
-    padding: 16px 22px;
-    border-radius: 14px;
+    padding: 9px 16px;
+    border: 0px;
+    border-radius: 10px;
     cursor: pointer;
 }
 
-element normal.normal    { background-color: @background-alt; text-color: @foreground; }
-element alternate.normal { background-color: @background-alt; text-color: @foreground; }
-element selected.normal  { background-color: @selected;       text-color: @onselected; }
-element normal.urgent    { background-color: transparent;     text-color: @color11; padding: 16px 4px; }
-element selected.urgent  { background-color: transparent;     text-color: @color11; padding: 16px 4px; }
+element normal.normal    { background-color: transparent; text-color: @foreground; }
+element alternate.normal { background-color: transparent; text-color: @foreground; }
+element selected.normal  { background-color: @selected;   text-color: @onselected; }
+element normal.urgent    { background-color: transparent; text-color: @color11; padding: 14px 8px 4px 8px; }
+element selected.urgent  { background-color: transparent; text-color: @color11; padding: 14px 8px 4px 8px; }
 
 element-text {
     background-color: transparent;
     text-color: inherit;
     vertical-align: 0.5;
-    horizontal-align: 0.5;
-    font: "Fira Sans Bold 15";
+    font: "FiraCode Nerd Font 12";
 }
