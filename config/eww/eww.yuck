@@ -2,10 +2,11 @@
 (defpoll EQ :interval "2s" :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
 
 (defwidget cover []
-  (overlay :class "covervinyl"
-    (box :class "coverart" :style "background-image: url('${PLAYER.art}');")
-    (box :class "covertint")
-    (box :class "coverhole" :halign "center" :valign "center")))
+  (box :valign "center" :halign "center" :vexpand false
+    (overlay :class "covervinyl"
+      (box :class "coverart" :style "background-image: url('${PLAYER.art}');")
+      (box :class "covertint")
+      (box :class "coverhole" :halign "center" :valign "center"))))
 
 (defwidget trackinfo []
   (box :orientation "v" :halign "start" :valign "center" :space-evenly false :class "trackinfo"
