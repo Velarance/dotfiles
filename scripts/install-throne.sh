@@ -59,7 +59,7 @@ Comment=Throne proxy client
 Exec=${WRAPPER} %U
 Icon=${DEST}/Throne.png
 Terminal=false
-Categories=Network;Utility;
+Categories=Network;
 StartupWMClass=Throne
 EOF
 update-desktop-database "${DESKTOP_DIR}" 2>/dev/null || true
