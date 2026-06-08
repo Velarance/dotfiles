@@ -75,7 +75,7 @@
 
 (defwindow music
   :monitor 0
-  :geometry (geometry :y "60px" :width "540px" :height "560px" :anchor "top center")
+  :geometry (geometry :x "8px" :y "44px" :width "540px" :height "560px" :anchor "top left")
   :stacking "overlay"
   :namespace "eww-music"
   :windowtype "dialog"
