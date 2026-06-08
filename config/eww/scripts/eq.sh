@@ -66,8 +66,11 @@ case "$1" in
         ;;
     get)
         read -ra G < <(read_gains)
-        last=$(easyeffects -a output 2>/dev/null)
-        byp=$(easyeffects -b 3 2>/dev/null)
+        last=""; byp="2"
+        if pgrep -x easyeffects >/dev/null; then
+            last=$(timeout 2 easyeffects -a output 2>/dev/null)
+            byp=$(timeout 2 easyeffects -b 3 2>/dev/null)
+        fi
         python3 -c "
 import json
 g=[float(x) for x in '''${G[*]}'''.split()]
