@@ -2,7 +2,7 @@
 (defpoll EQ :interval "2s" :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
 
 (defwidget cover []
-  (box :class "cover" :style "background-image: url('${PLAYER.art}');" :width 120 :height 120))
+  (box :class "cover" :style "background-image: url('${PLAYER.art}');"))
 
 (defwidget trackinfo []
   (box :orientation "v" :halign "start" :valign "center" :space-evenly false :class "trackinfo"
