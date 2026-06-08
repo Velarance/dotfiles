@@ -44,7 +44,7 @@ function lbl(a,   num){
     if(a~/launch\.sh/)return"Restart waybar"; if(a~/cliphist\.sh/)return"Clipboard history"
     if(a~/keybinds\.sh/)return"This cheatsheet"; if(a~/settings\.sh/)return"Settings"
     if(a~/\$TERMINAL/)return"Terminal"; if(a~/\$BROWSER/)return"Browser"; if(a~/\$FILEMANAGER/)return"File manager"
-    if(a~/^wlogout/)return"Logout menu"; if(a~/listen-on.*claude/)return"Claude in kitty"
+    if(a~/^wlogout/)return"Power menu"; if(a~/listen-on.*claude/)return"Claude in kitty"
     if(a~/^rofi -show drun/)return"App launcher"; if(a~/^rofi -show window/)return"Window switcher"
     return a
 }
