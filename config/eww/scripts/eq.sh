@@ -7,6 +7,9 @@ STATE="$HOME/.cache/eww-eq-gains"
 STAMP="$HOME/.cache/eww-eq-stamp"
 OUTDIR="$HOME/.config/easyeffects/output"
 
+mkdir -p "$OUTDIR"
+[ -e "$OUTDIR/Flat.json" ] || cp -f "$HOME/dotfiles/config/easyeffects/output/"*.json "$OUTDIR/" 2>/dev/null
+
 declare -A PRESETS=(
     [Flat]="0 0 0 0 0 0 0 0 0 0"
     [Bass]="6 5 4 2 0 0 0 0 0 0"
@@ -22,8 +25,9 @@ read_gains() { [ -f "$STATE" ] && cat "$STATE" || echo "0 0 0 0 0 0 0 0 0 0"; }
 
 write_custom() {
     python3 - "$OUTDIR" "$@" <<'PY'
-import json, sys
+import json, sys, os
 out = sys.argv[1]
+os.makedirs(out, exist_ok=True)
 gains = [round(float(x)) for x in sys.argv[2:12]]
 FREQS = [31, 63, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
 def band(f, g):
