@@ -46,7 +46,7 @@
 #wireplumber,
 #cpu,
 #memory,
-#language,
+#custom-language,
 #clock,
 #battery,
 #backlight,
@@ -65,7 +65,7 @@
 #wireplumber,
 #cpu,
 #memory,
-#language {
+#custom-language {
   margin: 0px;
   border-radius: 0px;
 }
@@ -86,7 +86,7 @@
   margin-right: 5px;
 }
 
-#language {
+#custom-language {
   margin-left: 5px;
   margin-right: 5px;
   border-radius: 5px;
@@ -156,7 +156,7 @@
 #custom-crypto,
 #cpu,
 #memory,
-#language,
+#custom-language,
 #clock,
 #battery,
 #backlight {

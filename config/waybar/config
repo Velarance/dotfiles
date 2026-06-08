@@ -24,7 +24,7 @@
 		"wireplumber",
     "cpu",
     "memory",
-    "hyprland/language",
+    "custom/language",
 		"tray",
 		"custom/power"
 		],
@@ -102,9 +102,11 @@
         "on-click": "kitty -e btop"
     },
 
-    "hyprland/language": {
-        "keyboard-name": "at-translated-set-2-keyboard",
-        "format": "󰌌 {short}"
+    "custom/language": {
+        "exec": "~/.config/hypr/scripts/waybar-layout.sh",
+        "interval": 1,
+        "format": "󰌌 {}",
+        "on-click": "~/.config/hypr/scripts/waybar-layout.sh toggle"
     },
 
     "custom/eq": {
