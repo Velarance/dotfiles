@@ -117,9 +117,9 @@
     "custom/eq": {
         "format": "\uf1de",
         "tooltip": true,
-        "tooltip-format": "Equalizer (EasyEffects)",
-        "on-click": "easyeffects",
-        "on-click-right": "easyeffects --gapplication-service"
+        "tooltip-format": "Music & Equalizer",
+        "on-click": "~/.config/eww/scripts/toggle.sh",
+        "on-click-right": "easyeffects"
     },
     "custom/focustime": {
         "exec": "$HOME/dotfiles/config/waybar/focustime-stats.py",

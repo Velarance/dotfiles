@@ -1,0 +1,72 @@
+(defpoll PLAYER :interval "1s" :initial "{}" `~/.config/eww/scripts/player.sh`)
+(defpoll EQ :interval "2s" :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
+
+(defwidget cover []
+  (box :class "cover" :style "background-image: url('${PLAYER.art}');" :width 120 :height 120))
+
+(defwidget trackinfo []
+  (box :orientation "v" :halign "start" :valign "center" :space-evenly false :class "trackinfo"
+    (label :class "title"  :halign "start" :limit-width 28 :text {PLAYER.title})
+    (label :class "artist" :halign "start" :limit-width 32 :text {PLAYER.artist})
+    (label :class "source" :halign "start" :text {PLAYER.source})))
+
+(defwidget seekbar []
+  (box :orientation "v" :space-evenly false :class "seekbox"
+    (scale :class "seek" :min 0 :max {PLAYER.len} :value {PLAYER.pos}
+           :onchange "playerctl position {}")
+    (box :orientation "h" :class "times"
+      (label :halign "start" :hexpand true :text {PLAYER.posstr})
+      (label :halign "end" :text {PLAYER.lenstr}))))
+
+(defwidget controls []
+  (box :class "controls" :halign "center" :space-evenly false
+    (button :class "ctlbtn" :onclick "playerctl previous" "⏮")
+    (button :class "ctlbtn playpause" :onclick "playerctl play-pause" {PLAYER.playicon})
+    (button :class "ctlbtn" :onclick "playerctl next" "⏭")))
+
+(defwidget eqband [i freq]
+  (box :orientation "v" :space-evenly false :class "eqband"
+    (scale :orientation "v" :flipped true :class "eqscale" :min -12 :max 12
+           :value {EQ.gains[i]} :onchange "~/.config/eww/scripts/eq.sh set ${i} {}")
+    (label :class "eqfreq" :text freq)))
+
+(defwidget eqsliders []
+  (box :class "eqsliders" :halign "center" :space-evenly true
+    (eqband :i 0 :freq "31")  (eqband :i 1 :freq "63")  (eqband :i 2 :freq "125")
+    (eqband :i 3 :freq "250") (eqband :i 4 :freq "500") (eqband :i 5 :freq "1k")
+    (eqband :i 6 :freq "2k")  (eqband :i 7 :freq "4k")  (eqband :i 8 :freq "8k")
+    (eqband :i 9 :freq "16k")))
+
+(defwidget presetbtn [name]
+  (button :class {EQ.preset == name ? "preset active" : "preset"}
+          :onclick "~/.config/eww/scripts/eq.sh preset ${name}" name))
+
+(defwidget presets []
+  (box :orientation "v" :space-evenly false :class "presets"
+    (box :class "presetrow" :homogeneous true
+      (presetbtn :name "Flat") (presetbtn :name "Bass") (presetbtn :name "Treble") (presetbtn :name "Vocal"))
+    (box :class "presetrow" :homogeneous true
+      (presetbtn :name "Pop") (presetbtn :name "Rock") (presetbtn :name "Jazz") (presetbtn :name "Classic"))))
+
+(defwidget musicpop []
+  (box :class "musicpop" :orientation "v" :space-evenly false
+    (box :class "playerrow" :space-evenly false
+      (cover)
+      (box :orientation "v" :space-evenly false :hexpand true :class "playerinfo"
+        (trackinfo)
+        (seekbar)
+        (controls)))
+    (box :class "eqheader" :space-evenly false
+      (label :class "eqtitle" :halign "start" :hexpand true :text "Equalizer")
+      (button :class {EQ.bypass ? "statebtn off" : "statebtn on"}
+              :onclick "~/.config/eww/scripts/eq.sh bypass"
+              :tooltip "toggle EQ" {EQ.preset != "" ? EQ.preset : "Custom"}))
+    (eqsliders)
+    (presets)))
+
+(defwindow music
+  :monitor 0
+  :geometry (geometry :y "60px" :width "540px" :height "560px" :anchor "top center")
+  :stacking "overlay"
+  :windowtype "dialog"
+  (musicpop))

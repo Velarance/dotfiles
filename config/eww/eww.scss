@@ -1,0 +1,92 @@
+@import "colors";
+
+* {
+  all: unset;
+  font-family: "FiraCode Nerd Font", "JetBrains Mono", sans-serif;
+}
+
+.musicpop {
+  background-color: $background;
+  border: 1px solid $outline;
+  border-radius: 22px;
+  padding: 20px;
+  margin: 8px;
+}
+
+.playerrow { margin-bottom: 16px; }
+.playerinfo { margin-left: 18px; }
+
+.cover {
+  border-radius: 80px;
+  background-size: cover;
+  background-position: center;
+  border: 2px solid $primary;
+}
+
+.title  { font-size: 17px; font-weight: bold; color: $on_surface; }
+.artist { font-size: 13px; color: $on_surface_variant; margin-top: 2px; }
+.source {
+  font-size: 11px; color: $on_primary; background-color: $primary;
+  border-radius: 8px; padding: 1px 8px; margin-top: 6px;
+}
+
+.seekbox { margin-top: 12px; }
+.times label { font-size: 11px; color: $on_surface_variant; margin-top: 2px; }
+
+.seek trough {
+  background-color: $surface;
+  border-radius: 12px; min-height: 6px;
+}
+.seek trough highlight {
+  background-color: $primary; border-radius: 12px;
+}
+.seek slider {
+  background-color: $on_surface; border-radius: 12px;
+  min-width: 12px; min-height: 12px; margin: -5px;
+}
+
+.controls { margin-top: 12px; }
+.ctlbtn {
+  color: $on_surface; font-size: 18px;
+  padding: 6px 14px; margin: 0 6px; border-radius: 18px;
+}
+.ctlbtn:hover { background-color: $surface; }
+.playpause {
+  color: $on_primary; background-color: $primary;
+  font-size: 20px; padding: 8px 16px; border-radius: 24px;
+}
+.playpause:hover { background-color: $secondary; }
+
+.eqheader { margin: 6px 2px 12px 2px; }
+.eqtitle { font-size: 14px; font-weight: bold; color: $on_surface; }
+.statebtn {
+  font-size: 12px; border-radius: 10px; padding: 3px 12px;
+  color: $on_primary; background-color: $primary;
+}
+.statebtn.off { color: $on_surface_variant; background-color: $surface; }
+
+.eqsliders { margin-bottom: 14px; }
+.eqband { margin: 0 4px; }
+.eqscale {
+  min-height: 150px; min-width: 26px;
+}
+.eqscale trough {
+  background-color: $surface; border-radius: 12px; min-width: 6px;
+}
+.eqscale trough highlight {
+  background-color: $primary; border-radius: 12px; min-width: 6px;
+}
+.eqscale slider {
+  background-color: $on_surface; border-radius: 12px;
+  min-width: 16px; min-height: 16px; margin: -6px;
+}
+.eqfreq { font-size: 10px; color: $on_surface_variant; margin-top: 6px; }
+
+.presets { margin-top: 4px; }
+.presetrow { margin: 3px 0; }
+.preset {
+  font-size: 12px; color: $on_surface; background-color: $surface;
+  border-radius: 10px; padding: 6px 0; margin: 0 3px;
+}
+.preset:hover { background-color: $secondary; color: $on_primary; }
+.preset.active { background-color: $primary; color: $on_primary; font-weight: bold; }
