@@ -1,14 +1,19 @@
-(defpoll PLAYER :interval "1s" :initial "{}" `~/.config/eww/scripts/player.sh`)
+(defpoll PLAYER :interval "1s" :initial "{\"status\":\"Stopped\",\"title\":\"Nothing playing\",\"artist\":\"\",\"source\":\"\",\"art\":\"\",\"blur\":\"\",\"posstr\":\"00:00\",\"lenstr\":\"00:00\",\"pos\":0,\"len\":1,\"playicon\":\"▶\"}" `~/.config/eww/scripts/player.sh`)
 (defpoll EQ :interval "2s" :initial "{\"preset\":\"\",\"bypass\":false,\"gains\":[0,0,0,0,0,0,0,0,0,0]}" `~/.config/eww/scripts/eq.sh get`)
 
 (defwidget cover []
-  (box :class "cover" :style "background-image: url('${PLAYER.art}');"))
+  (overlay :class "covervinyl"
+    (box :class "coverart" :style "background-image: url('${PLAYER.art}');")
+    (box :class "covertint")
+    (box :class "coverhole" :halign "center" :valign "center")))
 
 (defwidget trackinfo []
   (box :orientation "v" :halign "start" :valign "center" :space-evenly false :class "trackinfo"
-    (label :class "title"  :halign "start" :limit-width 28 :text {PLAYER.title})
-    (label :class "artist" :halign "start" :limit-width 32 :text {PLAYER.artist})
-    (label :class "source" :halign "start" :text {PLAYER.source})))
+    (label :class "title"  :halign "start" :limit-width 30 :text {PLAYER.title})
+    (label :class "artist" :halign "start" :limit-width 34 :text {PLAYER.artist != "" ? "BY " + PLAYER.artist : ""})
+    (box :class "srcrow" :halign "start" :space-evenly false
+      (label :class "srcpill" :text "󰓃 System")
+      (label :class "srcvia" :text {PLAYER.source != "" ? "VIA " + PLAYER.source : "Offline"}))))
 
 (defwidget seekbar []
   (box :orientation "v" :space-evenly false :class "seekbox"
@@ -49,18 +54,20 @@
       (presetbtn :name "Pop") (presetbtn :name "Rock") (presetbtn :name "Jazz") (presetbtn :name "Classic"))))
 
 (defwidget musicpop []
-  (box :class "musicpop" :orientation "v" :space-evenly false
+  (box :class "popcontent" :orientation "v" :space-evenly false
+       :style "background-image: linear-gradient(rgba(10,10,14,0.55), rgba(10,10,14,0.55)), url('${PLAYER.blur}');"
     (box :class "playerrow" :space-evenly false
       (cover)
       (box :orientation "v" :space-evenly false :hexpand true :class "playerinfo"
         (trackinfo)
         (seekbar)
         (controls)))
+    (box :class "separator")
     (box :class "eqheader" :space-evenly false
       (label :class "eqtitle" :halign "start" :hexpand true :text "Equalizer")
-      (button :class {EQ.bypass ? "statebtn off" : "statebtn on"}
-              :onclick "~/.config/eww/scripts/eq.sh bypass"
-              :tooltip "toggle EQ" {EQ.preset != "" ? EQ.preset : "Custom"}))
+      (button :class "savedpill" :onclick "~/.config/eww/scripts/eq.sh bypass"
+              :tooltip "toggle EQ" {EQ.bypass ? "Bypassed" : "Saved"})
+      (label :class "presetname" :text {EQ.preset != "" ? EQ.preset : "Custom"}))
     (eqsliders)
     (presets)))
 

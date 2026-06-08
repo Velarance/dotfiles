@@ -5,90 +5,113 @@
   font-family: "FiraCode Nerd Font", "JetBrains Mono", sans-serif;
 }
 
-.musicpop {
-  background-color: rgba($background, 0.82);
+.popcontent {
+  background-color: rgba($background, 0.4);
+  background-size: cover;
+  background-position: center;
   border: 1px solid $outline;
   border-radius: 22px;
   padding: 20px;
-  margin: 8px;
 }
 
-.playerrow { margin-bottom: 16px; }
+.playerrow { margin-bottom: 4px; }
 .playerinfo { margin-left: 18px; }
 
-.cover {
-  min-width: 120px;
-  min-height: 120px;
+/* --- vinyl cover --- */
+.covervinyl { min-width: 124px; min-height: 124px; }
+.coverart {
+  min-width: 124px;
+  min-height: 124px;
   border-radius: 80px;
   background-size: cover;
   background-position: center;
-  border: 2px solid $primary;
-}
-
-.title  { font-size: 17px; font-weight: bold; color: $on_surface; }
-.artist { font-size: 13px; color: $on_surface_variant; margin-top: 2px; }
-.source {
-  font-size: 11px; color: $on_primary; background-color: $primary;
-  border-radius: 8px; padding: 1px 8px; margin-top: 6px;
-}
-
-.seekbox { margin-top: 12px; }
-.times label { font-size: 11px; color: $on_surface_variant; margin-top: 2px; }
-
-.seek trough {
   background-color: $surface;
-  border-radius: 12px; min-height: 6px;
+  border: 3px solid $primary;
 }
-.seek trough highlight {
-  background-color: $primary; border-radius: 12px;
+.covertint {
+  border-radius: 80px;
+  background-color: rgba($primary, 0.16);
 }
+.coverhole {
+  min-width: 34px;
+  min-height: 34px;
+  border-radius: 20px;
+  background-color: rgba(#000000, 0.82);
+  border: 1px solid rgba($on_surface, 0.15);
+}
+
+/* --- track info --- */
+.title  { font-size: 17px; font-weight: bold; color: $on_surface; }
+.artist { font-size: 13px; color: $on_surface_variant; margin-top: 3px; }
+.srcrow { margin-top: 8px; }
+.srcpill {
+  font-size: 11px; color: $primary; background-color: rgba($on_surface, 0.10);
+  border-radius: 6px; padding: 2px 9px;
+}
+.srcvia { font-size: 11px; color: $on_surface_variant; font-style: italic; margin-left: 10px; }
+
+/* --- seek --- */
+.seekbox { margin-top: 14px; }
+.times label { font-size: 11px; color: $on_surface_variant; margin-top: 3px; }
+.seek trough {
+  background-color: rgba($surface, 0.7); border-radius: 12px; min-height: 6px;
+}
+.seek trough highlight { background-color: $primary; border-radius: 12px; }
 .seek slider {
   background-color: $on_surface; border-radius: 12px;
-  min-width: 12px; min-height: 12px; margin: -5px;
+  min-width: 14px; min-height: 14px; margin: -5px;
 }
 
-.controls { margin-top: 12px; }
+/* --- controls --- */
+.controls { margin-top: 14px; }
 .ctlbtn {
-  color: $on_surface; font-size: 18px;
-  padding: 6px 14px; margin: 0 6px; border-radius: 18px;
+  color: $on_surface_variant; font-size: 17px;
+  padding: 6px 16px; margin: 0 8px; border-radius: 20px;
 }
-.ctlbtn:hover { background-color: $surface; }
+.ctlbtn:hover { background-color: rgba($on_surface, 0.08); color: $on_surface; }
 .playpause {
   color: $on_primary; background-color: $primary;
-  font-size: 20px; padding: 8px 16px; border-radius: 24px;
+  font-size: 20px; padding: 10px 18px; border-radius: 26px;
 }
 .playpause:hover { background-color: $secondary; }
 
-.eqheader { margin: 6px 2px 12px 2px; }
-.eqtitle { font-size: 14px; font-weight: bold; color: $on_surface; }
-.statebtn {
-  font-size: 12px; border-radius: 10px; padding: 3px 12px;
-  color: $on_primary; background-color: $primary;
+/* --- separator --- */
+.separator {
+  background-color: rgba($on_surface, 0.10);
+  min-height: 2px; border-radius: 1px;
+  margin: 18px 0;
 }
-.statebtn.off { color: $on_surface_variant; background-color: $surface; }
 
-.eqsliders { margin-bottom: 14px; }
+/* --- eq header --- */
+.eqheader { margin-bottom: 14px; }
+.eqtitle { font-size: 15px; font-weight: bold; color: $primary; }
+.savedpill {
+  font-size: 11px; font-weight: bold; border-radius: 10px; padding: 4px 14px;
+  color: $on_surface_variant; background-color: $surface; border: 1px solid $outline;
+}
+.savedpill:hover { color: $on_surface; }
+.presetname { font-size: 13px; font-weight: bold; color: $on_surface_variant; margin-left: 14px; }
+
+/* --- eq sliders --- */
+.eqsliders { margin-bottom: 16px; }
 .eqband { margin: 0 4px; }
-.eqscale {
-  min-height: 150px; min-width: 26px;
-}
+.eqscale { min-height: 150px; min-width: 26px; }
 .eqscale trough {
-  background-color: $surface; border-radius: 12px; min-width: 6px;
+  background-color: rgba($surface, 0.7); border-radius: 12px; min-width: 6px;
 }
-.eqscale trough highlight {
-  background-color: $primary; border-radius: 12px; min-width: 6px;
-}
+.eqscale trough highlight { background-color: $primary; border-radius: 12px; min-width: 6px; }
 .eqscale slider {
   background-color: $on_surface; border-radius: 12px;
   min-width: 16px; min-height: 16px; margin: -6px;
 }
-.eqfreq { font-size: 10px; color: $on_surface_variant; margin-top: 6px; }
+.eqfreq { font-size: 10px; font-weight: bold; color: $on_surface_variant; margin-top: 7px; }
 
-.presets { margin-top: 4px; }
-.presetrow { margin: 3px 0; }
+/* --- presets --- */
+.presetrow { margin: 4px 0; }
 .preset {
-  font-size: 12px; color: $on_surface; background-color: $surface;
-  border-radius: 10px; padding: 6px 0; margin: 0 3px;
+  font-size: 12px; font-weight: bold; color: $on_surface_variant;
+  background-color: rgba($surface, 0.6);
+  border-radius: 9px; padding: 8px 0; margin: 0 4px;
 }
-.preset:hover { background-color: $secondary; color: $on_primary; }
-.preset.active { background-color: $primary; color: $on_primary; font-weight: bold; }
+.preset:hover { background-color: $surface; color: $on_surface; }
+.preset.active { background-color: $primary; color: $on_primary; }
