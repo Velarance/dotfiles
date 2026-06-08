@@ -18,6 +18,7 @@
     "backlight",
 ],
 	"modules-right":[
+		"tray",
 		"custom/focustime",
 		"custom/notification",
 		"network",
