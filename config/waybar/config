@@ -73,7 +73,8 @@
         "format": "  Connected",
         "format-disconnected": "  Disconnected",
         "interval": 60,
-        "on-click": "nm-connection-editor"
+        "on-click": "~/.config/hypr/scripts/rofi-wifi.sh",
+        "on-click-right": "nm-connection-editor"
     },
     "clock#time": {
         "format": "{:%H:%M  %a}",
