@@ -5,14 +5,8 @@ state=$(nmcli -g WIFI radio wifi)
 
 if [ "$state" = "enabled" ]; then
     toggle="󰖪  Disable Wi-Fi"
-    list=$(nmcli -t -f IN-USE,SIGNAL,SECURITY,SSID device wifi list | awk -F: '
-        $4=="" { next }
-        !seen[$4]++ {
-            sig=$2+0
-            icon=(sig>=75)?"󰤨":(sig>=50)?"󰤥":(sig>=25)?"󰤢":"󰤟"
-            if ($1=="*") icon="󰸞"
-            print icon " " $4
-        }')
+    list=$(nmcli -t -f SIGNAL,SSID device wifi list | sort -t: -k1 -rn | awk -F: '
+        $2 && !seen[$2]++ { print "󰖩  " $2 }')
     menu=$(printf '%s\n%s' "$toggle" "$list")
 else
     menu="󰖩  Enable Wi-Fi"
@@ -26,7 +20,7 @@ case "$chosen" in
     "󰖩  Enable Wi-Fi")  nmcli radio wifi on;  notify-send -a Wi-Fi "Wi-Fi enabled";  exit 0 ;;
 esac
 
-ssid="${chosen#* }"
+ssid=$(printf '%s' "$chosen" | sed 's/^[^ ]*  *//')
 [ -z "$ssid" ] && exit 0
 
 if nmcli -t -g NAME connection show | grep -qxF "$ssid"; then
