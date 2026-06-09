@@ -10,8 +10,8 @@
 	
 	"modules-left":[
     "custom/eq",
-    "custom/focustime",
     "hyprland/workspaces",
+    "custom/focustime",
   ],
 "modules-center": [
     "battery",
