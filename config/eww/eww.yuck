@@ -97,3 +97,12 @@
   :namespace "eww-wsdim"
   :focusable false
   (box :class "wsdim" :hexpand true :vexpand true))
+
+(defwindow rofibd
+  :monitor 0
+  :geometry (geometry :width "100%" :height "100%")
+  :stacking "foreground"
+  :namespace "eww-rofibd"
+  :focusable false
+  (eventbox :onclick "pkill -x rofi"
+    (box :class "backdrop" :hexpand true :vexpand true)))

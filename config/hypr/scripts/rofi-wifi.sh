@@ -1,6 +1,10 @@
 #!/bin/bash
 ROFI_CFG="$HOME/.config/rofi/config-wifi.rasi"
 
+mid=$(hyprctl monitors -j | jq -r '.[] | select(.focused==true) | .id')
+eww open rofibd --screen "${mid:-0}" 2>/dev/null
+trap 'eww close rofibd 2>/dev/null' EXIT
+
 state=$(nmcli -g WIFI radio wifi)
 
 if [ "$state" = "enabled" ]; then
