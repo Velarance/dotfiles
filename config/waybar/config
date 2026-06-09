@@ -10,6 +10,7 @@
 	
 	"modules-left":[
     "custom/eq",
+    "custom/focustime",
     "hyprland/workspaces",
   ],
 "modules-center": [
@@ -18,7 +19,6 @@
     "backlight",
 ],
 	"modules-right":[
-		"custom/focustime",
 		"custom/notification",
 		"network",
 		"wireplumber",
