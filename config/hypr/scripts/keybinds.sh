@@ -22,8 +22,6 @@ function lbl(a,   num){
     if(a=="layoutmsg, togglesplit")return"Toggle split"; if(a=="fullscreen, 0")return"Fullscreen"
     if(a=="togglespecialworkspace, dropdown")return"Dropdown terminal"
     if(a=="movetoworkspace, special:dropdown")return"→ dropdown"
-    if(a=="togglespecialworkspace, magic")return"Scratchpad"
-    if(a=="movetoworkspace, special:magic")return"→ scratchpad"
     if(a~/^workspace, [0-9]/){num=a; sub(/^workspace, /,"",num); return"Workspace "num}
     if(a~/^movetoworkspace, [0-9]/){num=a; sub(/^movetoworkspace, /,"",num); return"→ workspace "num}
     if(a=="workspace, e+1")return"Next workspace"; if(a=="workspace, e-1")return"Prev workspace"
