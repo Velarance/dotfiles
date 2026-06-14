@@ -92,7 +92,7 @@
 
 (defwindow wsdim
   :monitor 0
-  :geometry (geometry :width "100%" :height "100%")
+  :geometry (geometry :y "-100px" :width "100%" :height "130%" :anchor "top center")
   :stacking "foreground"
   :namespace "eww-wsdim"
   :focusable false
