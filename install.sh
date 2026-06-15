@@ -71,7 +71,7 @@ install_optional_tool() {
     fi
 
     # shellcheck disable=SC2086
-    if yay -S --noconfirm ${pkgs}; then
+    if with_retry "${name} install" bash -c "yay -S --noconfirm ${pkgs}"; then
         print_success "${name} installed successfully"
         if [[ -n "${post_hook}" ]] && declare -F "${post_hook}" >/dev/null; then
             "${post_hook}"
@@ -79,8 +79,33 @@ install_optional_tool() {
         return 0
     fi
 
-    print_error "${name} installation failed"
+    print_warning "${name} skipped"
     return 1
+}
+
+with_retry() {
+    local label="$1"; shift
+    local rc choice
+    while true; do
+        set +e
+        "$@"
+        rc=$?
+        set -e
+        [[ ${rc} -eq 0 ]] && return 0
+        print_error "${label} failed (exit ${rc})"
+        read -rp "$(echo -e "${YELLOW}?${NC}") [r]etry / [s]kip / [a]bort '${label}'? (r/s/a): " choice
+        case "${choice}" in
+            r|R|'') print_warning "Retrying ${label}..." ;;
+            s|S)    print_warning "Skipping ${label}"; return 1 ;;
+            a|A)    error_exit "Installation aborted by user at: ${label}" ;;
+            *)      print_warning "Please answer r, s, or a" ;;
+        esac
+    done
+}
+
+latest_git_tag() {
+    git ls-remote --tags --refs "https://github.com/$1" 2>/dev/null \
+        | awk -F/ '{print $NF}' | grep -E '^v?[0-9]' | sort -V | tail -1
 }
 
 cleanup() {
@@ -508,9 +533,8 @@ install_shell_plugins() {
         print_warning "Missing shell plugins: ${missing_plugins[*]}"
         if command_exists yay; then
             if ask_confirmation "Install missing shell plugins?"; then
-                yay -S --needed --noconfirm "${missing_plugins[@]}" || {
-                    print_warning "Some shell plugins failed to install"
-                }
+                with_retry "Shell plugins install" yay -S --needed --noconfirm "${missing_plugins[@]}" \
+                    || print_warning "Some shell plugins skipped"
             fi
         else
             print_warning "yay not found, install manually: yay -S ${missing_plugins[*]}"
@@ -554,14 +578,47 @@ install_optional_packages() {
     echo ""
 
     if ask_confirmation "Install all missing optional packages?"; then
-        if yay -S --needed --noconfirm "${missing[@]}"; then
+        if with_retry "Optional packages install" yay -S --needed --noconfirm "${missing[@]}"; then
             print_success "Optional packages installed successfully"
         else
-            print_warning "Some optional packages failed to install"
+            print_warning "Some optional packages skipped"
         fi
     else
         print_warning "Skipped optional packages installation"
         echo "Install manually with: yay -S ${missing[*]}"
+    fi
+}
+
+install_sdkman_java() {
+    local init="${HOME}/.sdkman/bin/sdkman-init.sh"
+    if [[ ! -s "${init}" ]]; then
+        print_warning "sdkman-init.sh not found, skipping Java"
+        return 0
+    fi
+
+    local major id default_id=""
+    for major in 8 17 21 26; do
+        id=$( source "${init}" >/dev/null 2>&1; sdk list java 2>/dev/null \
+              | awk -F'|' '{gsub(/ /,"",$6); print $6}' \
+              | grep -E "^${major}"'\.[0-9].*-tem$' | head -1 ) || true
+        if [[ -z "${id}" ]]; then
+            print_warning "No Temurin build found for Java ${major}"
+            continue
+        fi
+        [[ "${major}" == "21" ]] && default_id="${id}"
+        if [[ -d "${HOME}/.sdkman/candidates/java/${id}" ]]; then
+            print_success "Java ${id} already installed"
+            continue
+        fi
+        print_header "Installing Java ${id}"
+        with_retry "Java ${id}" bash -c "source '${init}'; yes | sdk install java '${id}'" \
+            && print_success "Java ${id} installed" \
+            || print_warning "Java ${id} skipped"
+    done
+
+    if [[ -n "${default_id}" ]] && [[ -d "${HOME}/.sdkman/candidates/java/${default_id}" ]]; then
+        bash -c "source '${init}'; sdk default java '${default_id}'" >/dev/null 2>&1 \
+            && print_success "Default Java set to ${default_id}"
     fi
 }
 
@@ -580,11 +637,9 @@ install_optional_components() {
                 yay -S --needed --noconfirm base-devel openssl xz tk libffi \
                     || print_warning "Some Python build dependencies failed to install"
             fi
-            if curl -fsSL https://pyenv.run | bash; then
-                print_success "pyenv installed to ~/.pyenv"
-            else
-                print_warning "pyenv installation failed"
-            fi
+            with_retry "pyenv install" bash -c 'curl -fsSL https://pyenv.run | bash' \
+                && print_success "pyenv installed to ~/.pyenv" \
+                || print_warning "pyenv installation skipped"
         fi
     else
         print_success "pyenv already installed"
@@ -630,24 +685,21 @@ install_optional_components() {
     if [[ ! -s "${HOME}/.nvm/nvm.sh" ]]; then
         if ask_confirmation "Install nvm + Node.js LTS? (Node Version Manager)"; then
             print_header "Installing nvm"
-            if PROFILE=/dev/null bash -c 'curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.5/install.sh | bash'; then
+            local nvm_ver
+            nvm_ver="$(latest_git_tag nvm-sh/nvm)" || true
+            [[ -z "${nvm_ver}" ]] && nvm_ver="v0.40.5"
+            print_success "Using nvm ${nvm_ver}"
+            if with_retry "nvm install" bash -c "PROFILE=/dev/null curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_ver}/install.sh | bash"; then
                 export NVM_DIR="${HOME}/.nvm"
                 if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
-                    set +eu
-                    source "${NVM_DIR}/nvm.sh"
-                    nvm install --lts
-                    local node_ok=$?
-                    set -eu
-                    if [[ ${node_ok} -eq 0 ]]; then
-                        print_success "Node.js LTS installed via nvm"
-                    else
-                        print_warning "nvm installed but Node.js install failed"
-                    fi
+                    with_retry "Node.js LTS install" bash -c 'export NVM_DIR="${HOME}/.nvm"; source "${NVM_DIR}/nvm.sh"; nvm install --lts' \
+                        && print_success "Node.js LTS installed via nvm" \
+                        || print_warning "Node.js LTS install skipped"
                 else
                     print_warning "nvm.sh not found after install"
                 fi
             else
-                print_warning "nvm installation failed"
+                print_warning "nvm installation skipped"
             fi
         fi
     else
@@ -671,6 +723,23 @@ install_optional_components() {
         print_success "Flatpak already installed"
         if ! flatpak remotes 2>/dev/null | grep -q '^flathub'; then
             flatpak_post_install
+        fi
+    fi
+
+    # SDKMAN + Java
+    if [[ ! -d "${HOME}/.sdkman" ]]; then
+        if ask_confirmation "Install SDKMAN + Java 8, 17, 21, 26 (Temurin)?"; then
+            print_header "Installing SDKMAN"
+            if with_retry "SDKMAN install" bash -c 'curl -fsSL "https://get.sdkman.io?rcupdate=false" | bash'; then
+                install_sdkman_java
+            else
+                print_warning "SDKMAN installation skipped"
+            fi
+        fi
+    else
+        print_success "SDKMAN already installed"
+        if ask_confirmation "Install/refresh Java 8, 17, 21, 26 via SDKMAN?"; then
+            install_sdkman_java
         fi
     fi
 
@@ -969,7 +1038,7 @@ main() {
     echo "  • Create symlinks from ${DOTFILES_DIR} to ~/.config/"
     echo "  • Set up SDDM (optional)"
     echo "  • Install shell plugins (optional)"
-    echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js, Flatpak (optional)"
+    echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js, Flatpak, SDKMAN + Java (optional)"
     echo "  • Create a btrfs swapfile, auto-sized (optional)"
     echo "  • Generate initial color scheme"
     echo ""
