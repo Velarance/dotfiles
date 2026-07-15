@@ -8,8 +8,30 @@ printf '\n   \033[1;35m  Keybinds\033[0m\n\n'
 
 awk -v W=42 '
 function trim(s){ gsub(/^[[:space:]]+|[[:space:]]+$/,"",s); return s }
+function keyname(k){
+    if(k=="slash")return"/";
+    if(k=="grave")return"`";
+    if(k=="mouse_down")return"Wheel ↓";
+    if(k=="mouse_up")return"Wheel ↑";
+    if(k=="page_down")return"PageDown";
+    if(k=="PAGE_UP")return"PageUp";
+    if(k=="PAGE_DOWN")return"PageDown";
+    if(k=="RETURN")return"Enter";
+    if(k=="ESCAPE")return"Esc";
+    return k
+}
 function lbl(a,   num){
     if(a=="movefocus, l")return"Focus ←"; if(a=="movefocus, r")return"Focus →"
+    if(a~/modal-menu-launch\.sh .*rofi -show drun/)return"App launcher";
+    if(a~/modal-menu-launch\.sh .*wlogout/)return"Power menu";
+    if(a~/swayosd-client --brightness raise/)return"Brightness +";
+    if(a~/swayosd-client --brightness lower/)return"Brightness −";
+    if(a~/swayosd-client --output-volume raise/)return"Volume +";
+    if(a~/swayosd-client --output-volume lower/)return"Volume −";
+    if(a~/swayosd-client --output-volume mute-toggle/)return"Mute";
+    if(a~/swayosd-client --input-volume mute-toggle/)return"Mic mute";
+    if(a~/swayosd-client --caps-lock/)return"Caps Lock indicator";
+    if(a~/eww\/scripts\/toggle\.sh/)return"Toggle music overlay";
     if(a=="movefocus, u")return"Focus ↑"; if(a=="movefocus, d")return"Focus ↓"
     if(a=="movewindow, l")return"Move window ←"; if(a=="movewindow, r")return"Move window →"
     if(a=="movewindow, u")return"Move window ↑"; if(a=="movewindow, d")return"Move window ↓"
@@ -39,7 +61,7 @@ function lbl(a,   num){
     if(a~/screenshot_claude/)return"Screenshot → Claude"
     if(a~/screenshot\.sh area/)return"Screenshot (area)"; if(a~/screenshot\.sh/)return"Screenshot"
     if(a~/wallpaper\.sh scheme/)return"Recolor theme"; if(a~/wallpaper\.sh select/)return"Pick wallpaper"
-    if(a~/launch\.sh/)return"Restart waybar"; if(a~/cliphist\.sh/)return"Clipboard history"
+    if(a~/config\/waybar\/launch\.sh/)return"Restart waybar"; if(a~/cliphist\.sh/)return"Clipboard history"
     if(a~/keybinds\.sh/)return"This cheatsheet"; if(a~/settings\.sh/)return"Settings"
     if(a~/rofi-workspaces/)return"Workspace switcher"
     if(a~/\$TERMINAL/)return"Terminal"; if(a~/\$BROWSER/)return"Browser"; if(a~/\$FILEMANAGER/)return"File manager"
@@ -53,7 +75,7 @@ function blank(){ return sprintf("%*s",W,"") }
 /^[[:space:]]*#/ { h=$0; sub(/^[^#]*#[[:space:]]*/,"",h); h=trim(h); if(h=="" || h ~ /KEY$/) next; if(h~/^Personal/)h="Personal"; if(h~/^Passthrough/)h="VM passthrough"; ns++; title[ns]=h; cnt[ns]=0; next }
 /^[[:space:]]*bind/ {
     if(ns==0){ns=1; title[1]="Keybinds"; cnt[1]=0}
-    line=$0; sub(/^[^=]*=[[:space:]]*/,"",line); n=split(line,a,","); mods=trim(a[1]); key=trim(a[2]); gsub(/\$mainMod/,"SUPER",mods)
+    line=$0; sub(/^[^=]*=[[:space:]]*/,"",line); n=split(line,a,","); mods=trim(a[1]); key=keyname(trim(a[2])); gsub(/\$mainMod/,"SUPER",mods)
     act=""; for(i=3;i<=n;i++) act=act (i>3?",":"") a[i]; act=trim(act); sub(/^exec,[[:space:]]*/,"",act)
     if(act ~ /^workspace, [0-9]+$/){ if(!ws[ns]){ws[ns]=1; cnt[ns]++; K[ns,cnt[ns]]="SUPER + 1…0"; A[ns,cnt[ns]]="Workspace 1–10"} next }
     if(act ~ /^movetoworkspace, [0-9]+$/){ if(!mw[ns]){mw[ns]=1; cnt[ns]++; K[ns,cnt[ns]]="SUPER SHIFT + 1…0"; A[ns,cnt[ns]]="Move → workspace"} next }

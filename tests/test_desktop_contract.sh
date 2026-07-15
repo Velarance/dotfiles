@@ -124,9 +124,20 @@ for generated_file in "${generated_hypr_files[@]}"; do
 done
 
 settings_script="${ROOT}/config/hypr/scripts/settings.sh"
+keybindings="${ROOT}/config/hypr/conf/keybinding.conf"
+keybinds_script="${ROOT}/config/hypr/scripts/keybinds.sh"
 [[ -x "${settings_script}" ]] || fail "settings menu script is missing or not executable"
-grep -Fq 'exec, ~/.config/hypr/scripts/settings.sh' "${ROOT}/config/hypr/conf/keybinding.conf" \
-    || fail "XF86Tools must launch the settings menu"
+[[ -x "${keybinds_script}" ]] || fail "keybind cheatsheet script is missing or not executable"
+grep -Fxq 'bind = $mainMod SHIFT, D, exec, ~/.config/hypr/scripts/settings.sh' "${keybindings}" \
+    || fail "Super+Shift+D must launch the settings menu"
+! grep -Fq 'XF86Tools, exec, ~/.config/hypr/scripts/settings.sh' "${keybindings}" \
+    || fail "the inaccessible XF86Tools Settings binding must be removed"
+grep -Eq '^bind = \$mainMod, slash, exec, .*keybinds\.sh$' "${keybindings}" \
+    || fail "Super+/ must keep launching keybinds.sh"
+grep -Fxq 'bind = , PRINT, exec, ~/dotfiles/config/hypr/scripts/screenshot.sh area' "${keybindings}" \
+    || fail "Print must start area screenshot selection"
+grep -Fxq 'bind = $mainMod, PRINT, exec, ~/dotfiles/config/hypr/scripts/screenshot.sh' "${keybindings}" \
+    || fail "Super+Print must screenshot the active monitor immediately"
 
 aliases="${ROOT}/home/shell/aliases.zsh"
 grep -Fq "alias hyprconf='cd \${HOME}/dotfiles/config/hypr/conf'" "${aliases}" \
@@ -149,7 +160,8 @@ minimal_menu=$(DOTFILES_DIR="${ROOT}" PATH=/nonexistent /usr/bin/bash "${setting
     || fail "settings menu must retain available entries during a partial install"
 
 settings_tmp=$(mktemp -d)
-trap 'rm -rf -- "${settings_tmp}"' EXIT
+keybinds_tmp=""
+trap 'rm -rf -- "${settings_tmp}" "${keybinds_tmp}"' EXIT
 touch "${settings_tmp}/nwg-displays"
 chmod +x "${settings_tmp}/nwg-displays"
 display_menu=$(DOTFILES_DIR="${ROOT}" PATH="${settings_tmp}" /usr/bin/bash "${settings_script}" --list) \
@@ -181,6 +193,28 @@ if ! HOME="${settings_tmp}/home" \
 fi
 grep -Fxq 'launched' "${settings_launch_log}" \
     || fail "settings menu did not execute nwg-displays after selecting Displays"
+
+keybinds_tmp=$(mktemp -d)
+mkdir -p "${keybinds_tmp}/.config/hypr/conf"
+cp "${keybindings}" "${keybinds_tmp}/.config/hypr/conf/keybinding.conf"
+cheatsheet_output=$(printf '\n' \
+    | HOME="${keybinds_tmp}" TERM=dumb bash "${keybinds_script}" \
+    | sed -r 's/\x1B\[[0-9;]*[[:alpha:]]//g')
+for expected_row in \
+    'SUPER SHIFT + D  Settings' \
+    'SUPER + /  This cheatsheet' \
+    'SUPER + M  App launcher' \
+    'SUPER SHIFT + X  Power menu' \
+    'XF86MonBrightnessUp  Brightness +' \
+    'XF86AudioRaiseVolume  Volume +' \
+    'PRINT  Screenshot (area)' \
+    'SUPER + PRINT  Screenshot' \
+    'SUPER + A  Toggle music overlay'; do
+    grep -Fq "${expected_row}" <<< "${cheatsheet_output}" \
+        || fail "cheatsheet is missing '${expected_row}'"
+done
+! grep -Fq 'swayosd-client' <<< "${cheatsheet_output}" \
+    || fail "cheatsheet must not expose raw swayosd commands"
 
 network_block=$(sed -n '/^[[:space:]]*"network": {/,/^[[:space:]]*},/p' \
     "${ROOT}/config/waybar/config")
