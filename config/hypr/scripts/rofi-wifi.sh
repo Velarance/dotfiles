@@ -1,9 +1,14 @@
 #!/bin/bash
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROFI_CFG="$HOME/.config/rofi/config-wifi.rasi"
 
-mid=$(hyprctl monitors -j | jq -r '.[] | select(.focused==true) | .id')
-eww open rofibd --screen "${mid:-0}" 2>/dev/null
-trap 'eww close rofibd 2>/dev/null' EXIT
+source "${SCRIPT_DIR}/lib/modal-menu.sh"
+modal_menu_enter
+
+trap modal_menu_release EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 state=$(nmcli -g WIFI radio wifi)
 
@@ -16,7 +21,7 @@ else
     menu="󰖩  Enable Wi-Fi"
 fi
 
-chosen=$(printf '%s\n' "$menu" | rofi -dmenu -i -p "Wi-Fi" -config "$ROFI_CFG")
+chosen=$(printf '%s\n' "$menu" | rofi -dmenu -replace -click-to-exit -i -p "Wi-Fi" -config "$ROFI_CFG")
 [ -z "$chosen" ] && exit 0
 
 case "$chosen" in
@@ -37,7 +42,7 @@ fi
 secured=$(nmcli -t -f SSID,SECURITY device wifi list | awk -F: -v s="$ssid" '$1==s {print $2; exit}')
 
 if [ -n "$secured" ]; then
-    pass=$(printf '' | rofi -dmenu -password -p "Password: $ssid" -config "$ROFI_CFG")
+    pass=$(printf '' | rofi -dmenu -replace -click-to-exit -password -p "Password: $ssid" -config "$ROFI_CFG")
     [ -z "$pass" ] && exit 0
     nmcli device wifi connect "$ssid" password "$pass" >/dev/null 2>&1
 else

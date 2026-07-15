@@ -1,17 +1,26 @@
 #!/bin/bash
 export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[[ "${SCRIPT_DIR}" != "${BASH_SOURCE[0]}" ]] || SCRIPT_DIR=.
+source "${SCRIPT_DIR}/lib/music-overlay.sh"
+
 exec 9>"$HOME/.cache/eww-music.lock"
 flock -n 9 || exit 0
 
-pgrep -x eww >/dev/null || { eww daemon >/dev/null 2>&1 & sleep 0.6; }
+eww_music_overlay_visible
+visible_status=$?
+case "${visible_status}" in
+    0)
+        eww_close_music_overlay || exit 1
+        exit 0
+        ;;
+    1) ;;
+    *) exit 1 ;;
+esac
 
-if [ "$(eww get winopen 2>/dev/null)" = "true" ]; then
-    eww update winopen=false
-    eww close music backdrop 2>/dev/null
-    hyprctl keyword unbind ,ESCAPE
-else
-    eww close music backdrop 2>/dev/null
-    eww update winopen=true
-    eww open-many music backdrop
-    hyprctl keyword bind ,ESCAPE,exec,~/.config/eww/scripts/close.sh
+eww_close_music_overlay || exit 1
+eww_open_music_overlay || exit 1
+if ! hypr_ipc keyword bind ,ESCAPE,exec,~/.config/eww/scripts/close.sh; then
+    eww_close_music_overlay || true
+    exit 1
 fi

@@ -26,6 +26,7 @@ Personal configuration files for Arch Linux with Hyprland.
 
 - **WM**: [Hyprland](https://hyprland.org/) - Dynamic tiling Wayland compositor
 - **Terminal**: [Kitty](https://sw.kovidgoyal.net/kitty/) - GPU-accelerated terminal
+- **File Manager**: [Nautilus](https://apps.gnome.org/Nautilus/) - GUI file manager with archive, preview, mobile, and network integrations
 - **Shell**: ZSH + Starship
 - **Editor**: [Neovim](https://neovim.io/)
 - **Bar**: [Waybar](https://github.com/Alexays/Waybar)
@@ -116,6 +117,7 @@ Full package lists are defined in `lib/packages.conf`. Key packages:
 hyprland waybar kitty rofi neovim matugen-bin awww swaync wlogout
 grim slurp wl-clipboard jq cliphist pipewire wireplumber
 ttf-firacode-nerd noto-fonts-cjk noto-fonts-emoji
+nautilus file-roller sushi gvfs-mtp gvfs-smb ffmpegthumbnailer
 ```
 
 **Shell:**
@@ -128,7 +130,8 @@ zsh starship zsh-autosuggestions zsh-syntax-highlighting zoxide fzf
 
 ```bash
 sddm hyprlock hypridle brightnessctl playerctl cava btop fastfetch
-thunar nautilus zen-browser-bin pavucontrol waybar-crypto yazi
+nautilus-python nautilus-open-any-terminal nautilus-admin-gtk4
+zen-browser-bin pavucontrol waybar-crypto yazi
 ```
 
 ### Installation
@@ -137,7 +140,7 @@ thunar nautilus zen-browser-bin pavucontrol waybar-crypto yazi
 
 ```bash
 # Clone repository
-git clone https://github.com/say8hi/dotfiles.git ~/dotfiles
+git clone https://github.com/Velarance/dotfiles.git ~/dotfiles
 
 # Run installation script
 cd ~/dotfiles

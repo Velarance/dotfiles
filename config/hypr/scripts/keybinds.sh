@@ -43,8 +43,8 @@ function lbl(a,   num){
     if(a~/keybinds\.sh/)return"This cheatsheet"; if(a~/settings\.sh/)return"Settings"
     if(a~/rofi-workspaces/)return"Workspace switcher"
     if(a~/\$TERMINAL/)return"Terminal"; if(a~/\$BROWSER/)return"Browser"; if(a~/\$FILEMANAGER/)return"File manager"
-    if(a~/^wlogout/)return"Power menu"; if(a~/listen-on.*claude/)return"Claude in kitty"
-    if(a~/^rofi -show drun/)return"App launcher"; if(a~/^rofi -show window/)return"Window switcher"
+    if(a~/(^| )wlogout /)return"Power menu"; if(a~/listen-on.*claude/)return"Claude in kitty"
+    if(a~/rofi -show drun/)return"App launcher"; if(a~/rofi -show window/)return"Window switcher"
     return a
 }
 function hdrcell(t,   pad){ pad=W-length(t)-2; if(pad<0)pad=0; return "\033[1;36m▌ " t "\033[0m" sprintf("%*s",pad,"") }

@@ -2,6 +2,8 @@
 
 # Load environment variables
 source "$HOME/dotfiles/lib/env.sh"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/modal-menu.sh"
 
 # Cache file for holding the current wallpaper
 cache_file="$HOME/.cache/current_wallpaper"
@@ -40,11 +42,15 @@ case $1 in
 
     # Select wallpaper with rofi
     "select")
+        modal_menu_enter
+        trap modal_menu_release EXIT
         sleep 0.2
         selected=$( find "$HOME/wallpaper" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \) -exec basename {} \; | sort -V | while read rfile
         do
             echo -en "$rfile\x00icon\x1f$HOME/wallpaper/${rfile}\n"
         done | rofi -dmenu -i -replace -config ~/dotfiles/config/rofi/config-wallpaper.rasi)
+        modal_menu_release
+        trap - EXIT
         if [ ! "$selected" ]; then
             echo "No wallpaper selected"
             exit
@@ -54,6 +60,8 @@ case $1 in
 
     # Change color scheme only (keep current wallpaper)
     "scheme")
+        modal_menu_enter
+        trap modal_menu_release EXIT
         sleep 0.2
         if [ ! -f $cache_file ]; then
             echo "No current wallpaper found"
@@ -61,7 +69,9 @@ case $1 in
         fi
         wallpaper=$current_wallpaper
 
-        scheme_selected=$(echo -e "content (default)\nmonochrome (b&w)\nneutral\nvibrant\ntonal-spot\nexpressive\nfidelity\nfruit-salad\nrainbow" | rofi -dmenu -i -p "Select color scheme" -config ~/dotfiles/config/rofi/config-scheme.rasi)
+        scheme_selected=$(echo -e "content (default)\nmonochrome (b&w)\nneutral\nvibrant\ntonal-spot\nexpressive\nfidelity\nfruit-salad\nrainbow" | rofi -dmenu -i -replace -p "Select color scheme" -config ~/dotfiles/config/rofi/config-scheme.rasi)
+        modal_menu_release
+        trap - EXIT
         if [ ! "$scheme_selected" ]; then
             echo "No scheme selected"
             exit

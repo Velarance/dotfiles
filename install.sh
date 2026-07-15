@@ -378,7 +378,7 @@ setup_local_config() {
 
     if [[ ! -f "${local_conf}" ]]; then
         if [[ -f "${example_conf}" ]]; then
-            mv "${example_conf}" "${local_conf}"
+            cp -- "${example_conf}" "${local_conf}"
             print_success "Created local.conf from example"
             print_warning "Edit ~/.config/hypr/conf/local.conf for per-machine overrides (monitors, hyprsplit, env)"
         else
@@ -589,6 +589,46 @@ install_optional_packages() {
     fi
 }
 
+setup_nautilus_integration() {
+    print_header "Configuring Nautilus integration"
+
+    local desktop_id="org.gnome.Nautilus.desktop"
+    local directory_mime="inode/directory"
+    local terminal_schema="com.github.stunkymonkey.nautilus-open-any-terminal"
+    local current_handler=""
+    local schemas=""
+
+    if ! command_exists xdg-mime; then
+        print_warning "xdg-mime not found, skipping the directory association"
+    elif xdg-mime default "${desktop_id}" "${directory_mime}"; then
+        current_handler="$(xdg-mime query default "${directory_mime}" 2>/dev/null || true)"
+        if [[ "${current_handler}" == "${desktop_id}" ]]; then
+            print_success "Nautilus is the default directory handler"
+        else
+            print_warning "Directory handler is still ${current_handler:-unset}"
+        fi
+    else
+        print_warning "Failed to set Nautilus as the directory handler"
+    fi
+
+    if ! command_exists gsettings; then
+        print_warning "gsettings not found, skipping the Nautilus terminal extension"
+        return 0
+    fi
+
+    schemas="$(gsettings list-schemas 2>/dev/null || true)"
+    if ! grep -Fxq "${terminal_schema}" <<< "${schemas}"; then
+        print_warning "Nautilus terminal extension is not installed, skipping Kitty setup"
+        return 0
+    fi
+
+    if gsettings set "${terminal_schema}" terminal kitty; then
+        print_success "Nautilus terminal extension uses Kitty"
+    else
+        print_warning "Failed to configure Kitty for the Nautilus terminal extension"
+    fi
+}
+
 install_sdkman_java() {
     local init="${HOME}/.sdkman/bin/sdkman-init.sh"
     if [[ ! -s "${init}" ]]; then
@@ -689,7 +729,7 @@ install_optional_components() {
             nvm_ver="$(latest_git_tag nvm-sh/nvm)" || true
             [[ -z "${nvm_ver}" ]] && nvm_ver="v0.40.5"
             print_success "Using nvm ${nvm_ver}"
-            if with_retry "nvm install" bash -c "PROFILE=/dev/null curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_ver}/install.sh | bash"; then
+            if with_retry "nvm install" bash -o pipefail -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_ver}/install.sh | PROFILE=/dev/null bash"; then
                 export NVM_DIR="${HOME}/.nvm"
                 if [[ -s "${NVM_DIR}/nvm.sh" ]]; then
                     with_retry "Node.js LTS install" bash -c 'export NVM_DIR="${HOME}/.nvm"; source "${NVM_DIR}/nvm.sh"; nvm install --lts' \
@@ -938,13 +978,20 @@ EOF
 setup_btrfs_swap() {
     print_header "Setting up btrfs swapfile"
 
-    if [[ "$(findmnt -no FSTYPE / 2>/dev/null)" != "btrfs" ]]; then
-        print_warning "Root filesystem is not btrfs, skipping swapfile"
-        return 0
+    local fstab_path="${DOTFILES_FSTAB_PATH:-/etc/fstab}"
+    local swap_dir="${DOTFILES_SWAP_DIR:-/swap}"
+    local meminfo_path="${DOTFILES_MEMINFO_PATH:-/proc/meminfo}"
+    swap_dir="${swap_dir%/}"
+
+    if [[ -z "${swap_dir}" || "${swap_dir}" == "/" ]]; then
+        print_error "Refusing unsafe swap directory: '${swap_dir}'"
+        return 1
     fi
 
-    if swapon --show=NAME --noheadings 2>/dev/null | grep -q '/swap/swapfile'; then
-        print_success "btrfs swapfile already active, skipping"
+    local swapfile="${swap_dir}/swapfile"
+
+    if [[ "$(findmnt -no FSTYPE / 2>/dev/null)" != "btrfs" ]]; then
+        print_warning "Root filesystem is not btrfs, skipping swapfile"
         return 0
     fi
 
@@ -953,14 +1000,149 @@ setup_btrfs_swap() {
         return 0
     fi
 
+    if [[ ! -f "${fstab_path}" ]]; then
+        print_error "fstab file is missing or is not a regular file: ${fstab_path}"
+        return 1
+    fi
+
+    local dev uuid
+    dev=$(findmnt -no SOURCE / 2>/dev/null || true)
+    dev="${dev%%\[*}"
+    uuid=$(findmnt -no UUID / 2>/dev/null || true)
+    if [[ -z "${dev}" || -z "${uuid}" ]]; then
+        print_error "Could not determine the root btrfs device and UUID"
+        return 1
+    fi
+
+    local mount_entry="UUID=${uuid} ${swap_dir} btrfs noatime,subvol=@swap 0 0"
+    local swap_entry="${swapfile} none swap defaults 0 0"
+
+    if sudo awk \
+        -v dir="${swap_dir}" \
+        -v file="${swapfile}" \
+        -v mount_source="UUID=${uuid}" '
+            /^[[:space:]]*($|#)/ { next }
+            {
+                sub(/#.*/, "")
+                if ($2 == dir) {
+                    if ($1 == mount_source && $3 == "btrfs" &&
+                        $4 == "noatime,subvol=@swap" && $5 == "0" &&
+                        $6 == "0" && NF == 6) {
+                        mount_count++
+                    } else {
+                        conflict = 1
+                    }
+                }
+                if ($1 == file || $2 == file) {
+                    if ($1 == file && $2 == "none" && $3 == "swap" &&
+                        $4 == "defaults" && $5 == "0" && $6 == "0" &&
+                        NF == 6) {
+                        swap_count++
+                    } else {
+                        conflict = 1
+                    }
+                }
+            }
+            END {
+                exit(conflict || mount_count > 1 || swap_count > 1 ? 0 : 1)
+            }
+        ' "${fstab_path}"; then
+        print_error "Conflicting fstab entry targets ${swap_dir} or ${swapfile}"
+        return 1
+    fi
+
+    local mount_entry_present=0
+    local swap_entry_present=0
+    if sudo awk -v dir="${swap_dir}" -v mount_source="UUID=${uuid}" '
+        /^[[:space:]]*($|#)/ { next }
+        {
+            sub(/#.*/, "")
+            if ($1 == mount_source && $2 == dir && $3 == "btrfs" &&
+                $4 == "noatime,subvol=@swap" && $5 == "0" &&
+                $6 == "0" && NF == 6) {
+                found = 1
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' "${fstab_path}"; then
+        mount_entry_present=1
+    fi
+    if sudo awk -v file="${swapfile}" '
+        /^[[:space:]]*($|#)/ { next }
+        {
+            sub(/#.*/, "")
+            if ($1 == file && $2 == "none" && $3 == "swap" &&
+                $4 == "defaults" && $5 == "0" && $6 == "0" &&
+                NF == 6) {
+                found = 1
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' "${fstab_path}"; then
+        swap_entry_present=1
+    fi
+
+    local swap_mounted=0
+    if [[ -e "${swap_dir}" && ( ! -d "${swap_dir}" || -L "${swap_dir}" ) ]]; then
+        print_error "Swap path exists but is not a plain directory: ${swap_dir}"
+        return 1
+    fi
+    if mountpoint -q "${swap_dir}" 2>/dev/null; then
+        local mounted_fstype mounted_options mounted_uuid
+        mounted_fstype=$(findmnt -no FSTYPE --target "${swap_dir}" 2>/dev/null || true)
+        mounted_options=$(findmnt -no OPTIONS --target "${swap_dir}" 2>/dev/null || true)
+        mounted_uuid=$(findmnt -no UUID --target "${swap_dir}" 2>/dev/null || true)
+        if [[ "${mounted_fstype}" != "btrfs" || "${mounted_uuid}" != "${uuid}" ]] ||
+            [[ ! ",${mounted_options}," =~ ,subvol=/?@swap, ]]; then
+            print_error "${swap_dir} is mounted from the wrong filesystem, device, or subvolume"
+            return 1
+        fi
+        swap_mounted=1
+    elif [[ -d "${swap_dir}" ]]; then
+        local first_swap_dir_entry
+        if ! first_swap_dir_entry=$(find "${swap_dir}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null); then
+            print_error "Could not inspect existing swap directory: ${swap_dir}"
+            return 1
+        fi
+        if [[ -n "${first_swap_dir_entry}" ]]; then
+            print_error "Refusing to mount over nonempty directory: ${swap_dir}"
+            return 1
+        fi
+    fi
+
+    local swap_active=0
+    if swapon --show=NAME --noheadings 2>/dev/null |
+        awk -v file="${swapfile}" '$1 == file { found = 1 } END { exit(found ? 0 : 1) }'; then
+        swap_active=1
+    fi
+
+    if [[ "${swap_active}" -eq 1 && ! -f "${swapfile}" ]]; then
+        print_error "Active swap path is not a regular file: ${swapfile}"
+        return 1
+    fi
+    if [[ -e "${swapfile}" ]]; then
+        if [[ ! -f "${swapfile}" ]]; then
+            print_error "Swapfile path exists but is not a regular file: ${swapfile}"
+            return 1
+        fi
+        if ! sudo btrfs inspect-internal map-swapfile -r "${swapfile}" >/dev/null 2>&1; then
+            print_error "Existing swapfile is not valid for btrfs swap: ${swapfile}"
+            return 1
+        fi
+    fi
+
     local ram_kb ram_gb rec
-    ram_kb=$(awk '/MemTotal/{print $2}' /proc/meminfo)
+    ram_kb=$(awk '/MemTotal/{print $2; exit}' "${meminfo_path}" 2>/dev/null || true)
+    if ! [[ "${ram_kb}" =~ ^[0-9]+$ ]] || [[ "${ram_kb}" -lt 1 ]]; then
+        print_error "Could not read MemTotal from ${meminfo_path}"
+        return 1
+    fi
     ram_gb=$(awk "BEGIN{printf \"%.1f\", ${ram_kb}/1048576}")
     rec=$(awk "BEGIN{r=${ram_kb}/1048576; v=r+sqrt(r); printf \"%d\", (v==int(v)?v:int(v)+1)}")
 
     echo "Detected RAM: ${ram_gb} GiB"
-    echo "Recommended:  ${rec} GiB (RAM + headroom, enough to hibernate)"
-    if ! ask_confirmation "Create an on-disk btrfs swapfile?"; then
+    echo "Recommended:  ${rec} GiB (RAM plus working headroom)"
+    if ! ask_confirmation "Configure an on-disk btrfs swapfile?"; then
         return 0
     fi
 
@@ -972,44 +1154,496 @@ setup_btrfs_swap() {
         size="${rec}"
     fi
 
-    local dev uuid tmp
-    dev=$(findmnt -no SOURCE / | sed 's/\[.*\]//')
-    uuid=$(findmnt -no UUID /)
+    local tmp=""
+    local fstab_original=""
+    local fstab_candidate=""
+    local fstab_stage=""
+    local fstab_stage_owned=0
+    local top_mounted=0
+    local created_subvolume=0
+    local created_swap_dir=0
+    local mounted_swap_by_run=0
+    local created_swapfile=0
+    local activated_swap_by_run=0
+    local traps_installed=0
+    local previous_int_trap previous_term_trap
+    previous_int_trap=$(trap -p INT)
+    previous_term_trap=$(trap -p TERM)
 
-    tmp=$(mktemp -d)
-    if ! sudo mount -o subvolid=5 "${dev}" "${tmp}"; then
-        print_error "Failed to mount btrfs top-level subvolume"
-        rmdir "${tmp}" 2>/dev/null || true
+    _dotfiles_btrfs_swap_is_active() {
+        swapon --show=NAME --noheadings 2>/dev/null |
+            awk -v file="${swapfile}" \
+                '$1 == file { found = 1 } END { exit(found ? 0 : 1) }'
+    }
+
+    _dotfiles_btrfs_swap_restore_traps() {
+        [[ "${traps_installed}" -eq 1 ]] || return 0
+
+        trap - INT TERM
+        if [[ -n "${previous_int_trap}" ]]; then
+            eval "${previous_int_trap}"
+        fi
+        if [[ -n "${previous_term_trap}" ]]; then
+            eval "${previous_term_trap}"
+        fi
+        traps_installed=0
+    }
+
+    _dotfiles_btrfs_swap_rollback() {
+        local can_remove_runtime=1
+        local can_remove_subvolume=1
+
+        if [[ "${activated_swap_by_run}" -eq 1 ]]; then
+            if ! _dotfiles_btrfs_swap_is_active; then
+                activated_swap_by_run=0
+            elif sudo swapoff "${swapfile}"; then
+                activated_swap_by_run=0
+            else
+                print_error "Rollback could not disable ${swapfile}"
+                can_remove_runtime=0
+                can_remove_subvolume=0
+            fi
+        fi
+
+        if [[ "${can_remove_runtime}" -eq 1 && "${created_swapfile}" -eq 1 ]]; then
+            if [[ ! -e "${swapfile}" ]]; then
+                created_swapfile=0
+            elif sudo rm -f -- "${swapfile}"; then
+                created_swapfile=0
+            else
+                print_error "Rollback could not remove ${swapfile}"
+                can_remove_subvolume=0
+            fi
+        fi
+
+        if [[ "${can_remove_runtime}" -eq 1 && "${mounted_swap_by_run}" -eq 1 ]]; then
+            if ! mountpoint -q "${swap_dir}" 2>/dev/null; then
+                mounted_swap_by_run=0
+                swap_mounted=0
+            elif sudo umount "${swap_dir}"; then
+                mounted_swap_by_run=0
+                swap_mounted=0
+            else
+                print_error "Rollback could not unmount ${swap_dir}"
+                can_remove_subvolume=0
+            fi
+        fi
+
+        if [[ "${created_swap_dir}" -eq 1 && "${mounted_swap_by_run}" -eq 0 ]]; then
+            if [[ ! -d "${swap_dir}" ]]; then
+                created_swap_dir=0
+            elif sudo rmdir "${swap_dir}"; then
+                created_swap_dir=0
+            else
+                print_error "Rollback could not remove ${swap_dir}"
+            fi
+        fi
+
+        if [[ "${created_subvolume}" -eq 1 && "${can_remove_subvolume}" -eq 1 ]]; then
+            if [[ -z "${tmp}" ]]; then
+                tmp=$(mktemp -d 2>/dev/null || true)
+            fi
+            if [[ -n "${tmp}" ]] && mountpoint -q "${tmp}" 2>/dev/null; then
+                top_mounted=1
+            elif [[ -n "${tmp}" ]]; then
+                top_mounted=1
+                if sudo mount -o subvolid=5 "${dev}" "${tmp}"; then
+                    top_mounted=1
+                elif mountpoint -q "${tmp}" 2>/dev/null; then
+                    top_mounted=1
+                else
+                    top_mounted=0
+                    print_error "Rollback could not remount the btrfs top level"
+                fi
+            fi
+            if [[ "${top_mounted}" -eq 1 ]]; then
+                if ! sudo btrfs subvolume show "${tmp}/@swap" >/dev/null 2>&1; then
+                    created_subvolume=0
+                elif sudo btrfs subvolume delete "${tmp}/@swap"; then
+                    created_subvolume=0
+                else
+                    print_error "Rollback could not delete the created @swap subvolume"
+                fi
+            fi
+        fi
+
+        if [[ "${top_mounted}" -eq 1 ]]; then
+            if ! mountpoint -q "${tmp}" 2>/dev/null; then
+                top_mounted=0
+            elif sudo umount "${tmp}"; then
+                top_mounted=0
+            else
+                print_error "Rollback could not unmount the btrfs top level"
+            fi
+        fi
+        if [[ -n "${tmp}" && "${top_mounted}" -eq 0 ]]; then
+            rmdir "${tmp}" 2>/dev/null || true
+            tmp=""
+        fi
+
+        if [[ "${fstab_stage_owned}" -eq 1 && -n "${fstab_stage}" ]]; then
+            sudo rm -f -- "${fstab_stage}" >/dev/null 2>&1 || true
+            fstab_stage_owned=0
+            fstab_stage=""
+        fi
+        if [[ -n "${fstab_candidate}" ]]; then
+            rm -f -- "${fstab_candidate}" || true
+            fstab_candidate=""
+        fi
+        if [[ -n "${fstab_original}" ]]; then
+            rm -f -- "${fstab_original}" || true
+            fstab_original=""
+        fi
+    }
+
+    _dotfiles_btrfs_swap_fail() {
+        trap '' INT TERM
+        print_error "$1"
+        _dotfiles_btrfs_swap_rollback
+        _dotfiles_btrfs_swap_restore_traps
+        unset -f \
+            _dotfiles_btrfs_swap_is_active \
+            _dotfiles_btrfs_swap_restore_traps \
+            _dotfiles_btrfs_swap_rollback \
+            _dotfiles_btrfs_swap_fail \
+            _dotfiles_btrfs_swap_signal
+        return 1
+    }
+
+    _dotfiles_btrfs_swap_signal() {
+        local signal_name="$1"
+        local signal_status="$2"
+
+        trap '' INT TERM
+        print_error "Interrupted by ${signal_name}; rolling back btrfs swap setup"
+        _dotfiles_btrfs_swap_rollback
+        _dotfiles_btrfs_swap_restore_traps
+        unset -f \
+            _dotfiles_btrfs_swap_is_active \
+            _dotfiles_btrfs_swap_restore_traps \
+            _dotfiles_btrfs_swap_rollback \
+            _dotfiles_btrfs_swap_fail \
+            _dotfiles_btrfs_swap_signal
+        exit "${signal_status}"
+    }
+
+    traps_installed=1
+    trap '_dotfiles_btrfs_swap_signal INT 130' INT
+    trap '_dotfiles_btrfs_swap_signal TERM 143' TERM
+
+    if [[ "${swap_mounted}" -eq 0 ]]; then
+        tmp=$(mktemp -d) || {
+            _dotfiles_btrfs_swap_fail "Could not create a btrfs mountpoint"
+            return 1
+        }
+        top_mounted=1
+        if ! sudo mount -o subvolid=5 "${dev}" "${tmp}"; then
+            _dotfiles_btrfs_swap_fail "Failed to mount btrfs top-level subvolume"
+            return 1
+        fi
+
+        if [[ -e "${tmp}/@swap" ]]; then
+            if [[ ! -d "${tmp}/@swap" ]] ||
+                ! sudo btrfs subvolume show "${tmp}/@swap" >/dev/null 2>&1; then
+                _dotfiles_btrfs_swap_fail "Existing @swap is not a btrfs subvolume"
+                return 1
+            fi
+        else
+            created_subvolume=1
+            if ! sudo btrfs subvolume create "${tmp}/@swap"; then
+                _dotfiles_btrfs_swap_fail "Failed to create @swap subvolume"
+                return 1
+            fi
+        fi
+
+        if [[ ! -d "${swap_dir}" ]]; then
+            created_swap_dir=1
+            if ! sudo mkdir -- "${swap_dir}"; then
+                _dotfiles_btrfs_swap_fail "Failed to create ${swap_dir}"
+                return 1
+            fi
+        fi
+
+        mounted_swap_by_run=1
+        if ! sudo mount -o noatime,subvol=@swap "${dev}" "${swap_dir}"; then
+            _dotfiles_btrfs_swap_fail "Failed to mount @swap at ${swap_dir}"
+            return 1
+        fi
+        swap_mounted=1
+    fi
+
+    if [[ ! -e "${swapfile}" ]]; then
+        created_swapfile=1
+        if ! sudo btrfs filesystem mkswapfile --size "${size}g" "${swapfile}"; then
+            _dotfiles_btrfs_swap_fail "mkswapfile failed"
+            return 1
+        fi
+    fi
+    if ! sudo btrfs inspect-internal map-swapfile -r "${swapfile}" >/dev/null 2>&1; then
+        _dotfiles_btrfs_swap_fail "btrfs rejected the swapfile mapping"
         return 1
     fi
-    if [[ ! -d "${tmp}/@swap" ]]; then
-        if ! sudo btrfs subvolume create "${tmp}/@swap"; then
-            print_error "Failed to create @swap subvolume"
-            sudo umount "${tmp}"; rmdir "${tmp}" 2>/dev/null || true
+
+    if [[ "${swap_active}" -eq 0 ]]; then
+        activated_swap_by_run=1
+        if ! sudo swapon "${swapfile}"; then
+            _dotfiles_btrfs_swap_fail "Failed to activate ${swapfile}"
             return 1
         fi
     fi
-    sudo umount "${tmp}"; rmdir "${tmp}" 2>/dev/null || true
 
-    sudo mkdir -p /swap
-    if ! grep -qE 'subvol=/?@swap' /etc/fstab; then
-        echo "UUID=${uuid} /swap btrfs noatime,subvol=@swap 0 0" | sudo tee -a /etc/fstab >/dev/null
+    if ! _dotfiles_btrfs_swap_is_active; then
+        _dotfiles_btrfs_swap_fail "Swap activation verification failed for ${swapfile}"
+        return 1
     fi
-    mountpoint -q /swap || sudo mount /swap
 
-    if [[ ! -e /swap/swapfile ]]; then
-        if ! sudo btrfs filesystem mkswapfile --size "${size}g" /swap/swapfile; then
-            print_error "mkswapfile failed"
+    if [[ "${top_mounted}" -eq 1 ]]; then
+        if mountpoint -q "${tmp}" 2>/dev/null && ! sudo umount "${tmp}"; then
+            _dotfiles_btrfs_swap_fail "Failed to unmount the btrfs top level"
             return 1
         fi
+        top_mounted=0
     fi
-    sudo swapon /swap/swapfile 2>/dev/null || true
-
-    if ! grep -q '/swap/swapfile' /etc/fstab; then
-        echo "/swap/swapfile none swap defaults 0 0" | sudo tee -a /etc/fstab >/dev/null
+    if [[ -n "${tmp}" ]]; then
+        if ! rmdir "${tmp}"; then
+            _dotfiles_btrfs_swap_fail "Failed to remove the temporary btrfs mountpoint"
+            return 1
+        fi
+        tmp=""
     fi
 
-    print_success "btrfs swapfile ready: ${size} GiB at /swap/swapfile (zram swap, if present, stays primary)"
+    if [[ "${mount_entry_present}" -eq 0 || "${swap_entry_present}" -eq 0 ]]; then
+        fstab_original=$(mktemp) || {
+            _dotfiles_btrfs_swap_fail "Could not snapshot ${fstab_path}"
+            return 1
+        }
+        if ! sudo cat -- "${fstab_path}" > "${fstab_original}"; then
+            _dotfiles_btrfs_swap_fail "Could not snapshot ${fstab_path}"
+            return 1
+        fi
+
+        local snapshot_fstab_state
+        if ! snapshot_fstab_state=$(awk \
+            -v dir="${swap_dir}" \
+            -v file="${swapfile}" \
+            -v mount_source="UUID=${uuid}" '
+                /^[[:space:]]*($|#)/ { next }
+                {
+                    sub(/#.*/, "")
+                    if ($2 == dir) {
+                        if ($1 == mount_source && $3 == "btrfs" &&
+                            $4 == "noatime,subvol=@swap" && $5 == "0" &&
+                            $6 == "0" && NF == 6) {
+                            mount_count++
+                        } else {
+                            conflict = 1
+                        }
+                    }
+                    if ($1 == file || $2 == file) {
+                        if ($1 == file && $2 == "none" && $3 == "swap" &&
+                            $4 == "defaults" && $5 == "0" && $6 == "0" &&
+                            NF == 6) {
+                            swap_count++
+                        } else {
+                            conflict = 1
+                        }
+                    }
+                }
+                END {
+                    if (conflict || mount_count > 1 || swap_count > 1) {
+                        exit 1
+                    }
+                    printf "%d %d\n", mount_count == 1, swap_count == 1
+                }
+            ' "${fstab_original}"); then
+            _dotfiles_btrfs_swap_fail \
+                "Conflicting fstab entry appeared while the swap transaction was running"
+            return 1
+        fi
+        read -r mount_entry_present swap_entry_present <<< "${snapshot_fstab_state}"
+    fi
+
+    if [[ "${mount_entry_present}" -eq 0 || "${swap_entry_present}" -eq 0 ]]; then
+
+        fstab_candidate=$(mktemp) || {
+            _dotfiles_btrfs_swap_fail "Could not create an fstab candidate"
+            return 1
+        }
+        if ! cp -- "${fstab_original}" "${fstab_candidate}"; then
+            _dotfiles_btrfs_swap_fail "Could not initialize the fstab candidate"
+            return 1
+        fi
+        if [[ -s "${fstab_candidate}" ]] &&
+            [[ "$(tail -c 1 "${fstab_candidate}" | wc -l)" -eq 0 ]]; then
+            if ! printf '\n' >> "${fstab_candidate}"; then
+                _dotfiles_btrfs_swap_fail "Could not terminate the fstab candidate"
+                return 1
+            fi
+        fi
+        if [[ "${mount_entry_present}" -eq 0 ]]; then
+            if ! printf '%s\n' "${mount_entry}" >> "${fstab_candidate}"; then
+                _dotfiles_btrfs_swap_fail "Could not append the @swap mount entry"
+                return 1
+            fi
+        fi
+        if [[ "${swap_entry_present}" -eq 0 ]]; then
+            if ! printf '%s\n' "${swap_entry}" >> "${fstab_candidate}"; then
+                _dotfiles_btrfs_swap_fail "Could not append the swapfile entry"
+                return 1
+            fi
+        fi
+
+        if ! findmnt --verify --tab-file "${fstab_candidate}"; then
+            _dotfiles_btrfs_swap_fail "fstab candidate validation failed"
+            return 1
+        fi
+
+        if ! sudo cmp -s -- "${fstab_original}" "${fstab_path}"; then
+            _dotfiles_btrfs_swap_fail "fstab changed while the swap transaction was running"
+            return 1
+        fi
+
+        if ! fstab_stage=$(sudo mktemp -- "${fstab_path}.dotfiles.XXXXXX"); then
+            fstab_stage=""
+            _dotfiles_btrfs_swap_fail "Failed to create a staged fstab in ${fstab_path%/*}"
+            return 1
+        fi
+        fstab_stage_owned=1
+        if ! sudo cp --preserve=all -- "${fstab_path}" "${fstab_stage}"; then
+            _dotfiles_btrfs_swap_fail "Failed to stage the fstab candidate"
+            return 1
+        fi
+        if ! sudo tee "${fstab_stage}" < "${fstab_candidate}" >/dev/null; then
+            _dotfiles_btrfs_swap_fail "Failed to write the staged fstab candidate"
+            return 1
+        fi
+
+        # Ignore interrupts only through the atomic exchange/recovery decision.
+        # The displaced live file proves whether another writer won the race.
+        trap '' INT TERM
+        if ! sudo mv --exchange --no-copy -- "${fstab_stage}" "${fstab_path}"; then
+            _dotfiles_btrfs_swap_fail "Failed to commit the fstab candidate"
+            return 1
+        fi
+
+        local displaced_fstab_status
+        if sudo cmp -s -- "${fstab_original}" "${fstab_stage}"; then
+            if ! sudo rm -f -- "${fstab_stage}"; then
+                print_warning "Committed fstab, but could not remove displaced copy ${fstab_stage}"
+            fi
+            fstab_stage_owned=0
+            fstab_stage=""
+            _dotfiles_btrfs_swap_restore_traps
+            rm -f -- "${fstab_candidate}" "${fstab_original}" || true
+            fstab_candidate=""
+            fstab_original=""
+        else
+            displaced_fstab_status=$?
+            if sudo mv --exchange --no-copy -- "${fstab_stage}" "${fstab_path}"; then
+                if [[ "${displaced_fstab_status}" -eq 1 ]]; then
+                    _dotfiles_btrfs_swap_fail \
+                        "fstab changed during the atomic commit; the external version was restored"
+                else
+                    _dotfiles_btrfs_swap_fail \
+                        "Could not verify the displaced fstab; the previous version was restored"
+                fi
+                return 1
+            fi
+
+            # The candidate remains live, so keep runtime swap active and retain
+            # the displaced file instead of producing a broken persistent state.
+            fstab_stage_owned=0
+            print_error "fstab changed during commit and could not be restored"
+            print_warning \
+                "Swap remains active; displaced fstab preserved at ${fstab_stage} for manual recovery"
+            _dotfiles_btrfs_swap_restore_traps
+            rm -f -- "${fstab_candidate}" "${fstab_original}" || true
+            fstab_candidate=""
+            fstab_original=""
+            unset -f \
+                _dotfiles_btrfs_swap_is_active \
+                _dotfiles_btrfs_swap_restore_traps \
+                _dotfiles_btrfs_swap_rollback \
+                _dotfiles_btrfs_swap_fail \
+                _dotfiles_btrfs_swap_signal
+            return 1
+        fi
+    else
+        _dotfiles_btrfs_swap_restore_traps
+        if [[ -n "${fstab_original}" ]]; then
+            rm -f -- "${fstab_original}" || true
+            fstab_original=""
+        fi
+    fi
+
+    unset -f \
+        _dotfiles_btrfs_swap_is_active \
+        _dotfiles_btrfs_swap_restore_traps \
+        _dotfiles_btrfs_swap_rollback \
+        _dotfiles_btrfs_swap_fail \
+        _dotfiles_btrfs_swap_signal
+    print_success "btrfs swapfile ready at ${swapfile} (zram swap, if present, stays primary)"
+}
+
+check_manual_hibernation() {
+    local efi_path="${DOTFILES_EFI_PATH:-/sys/firmware/efi}"
+    local mkinitcpio_config="${DOTFILES_MKINITCPIO_CONFIG:-/etc/mkinitcpio.conf}"
+    local can_hibernate
+
+    if [[ ! -d "${efi_path}" ]]; then
+        print_warning "Manual hibernation is unavailable: UEFI was not detected at ${efi_path}"
+        return 0
+    fi
+
+    if [[ ! -r "${mkinitcpio_config}" ]]; then
+        print_warning "Manual hibernation is indeterminate: cannot read ${mkinitcpio_config}"
+        return 0
+    fi
+
+    if ! awk '
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*HOOKS[[:space:]]*=/ {
+            found = 0
+            line = $0
+            sub(/[[:space:]]*#.*/, "", line)
+            count = split(line, fields, /[[:space:]]+/)
+            for (i = 1; i <= count; i++) {
+                token = fields[i]
+                gsub(/^[^[:alnum:]_.+-]+/, "", token)
+                gsub(/[^[:alnum:]_.+-]+$/, "", token)
+                if (token == "systemd") {
+                    found = 1
+                }
+            }
+        }
+        END { exit(found ? 0 : 1) }
+    ' "${mkinitcpio_config}"; then
+        print_warning "Manual hibernation is unavailable: active HOOKS lacks the systemd hook"
+        return 0
+    fi
+
+    if ! command_exists busctl; then
+        print_warning "Manual hibernation is indeterminate: busctl is unavailable"
+        return 0
+    fi
+
+    if ! can_hibernate=$(busctl call org.freedesktop.login1 \
+        /org/freedesktop/login1 \
+        org.freedesktop.login1.Manager CanHibernate 2>/dev/null); then
+        print_warning "Manual hibernation is indeterminate: login1 CanHibernate query failed"
+        return 0
+    fi
+
+    case "${can_hibernate}" in
+        's "yes"'|'s "challenge"')
+            print_success "Manual hibernation is available via Wlogout"
+            ;;
+        *)
+            print_warning "Manual hibernation is unavailable: login1 CanHibernate returned ${can_hibernate:-no result}"
+            ;;
+    esac
+
+    return 0
 }
 
 #==============================================================================
@@ -1062,12 +1696,14 @@ main() {
     setup_wallpaper_dir
     install_shell_plugins
     install_optional_packages
+    setup_nautilus_integration
     setup_sddm
     install_optional_components
     setup_icons
     setup_qt_theme
     setup_easyeffects
     setup_btrfs_swap
+    check_manual_hibernation
     generate_initial_colors
     generate_gtk_bookmarks
     set_default_shell
@@ -1100,5 +1736,7 @@ main() {
     log "Installation completed successfully"
 }
 
-# Run main function
-main "$@"
+# Run main function only when executed directly.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

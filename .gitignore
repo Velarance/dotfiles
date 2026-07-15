@@ -33,3 +33,4 @@ config/hypr/hyprpaper.conf
 # Project-specific files - never commit
 CLAUDE.md
 install.log
+docs/*

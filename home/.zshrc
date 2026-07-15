@@ -4,11 +4,15 @@
 # =====================================================
 
 # Initialize starship prompt
-export STARSHIP_CONFIG="${HOME}/dotfiles/config/starship/starship.toml"
-eval "$(starship init zsh)"
+if command -v starship >/dev/null 2>&1; then
+    export STARSHIP_CONFIG="${HOME}/dotfiles/config/starship/starship.toml"
+    eval "$(starship init zsh)"
+fi
 
 # Initialize zoxide (better z)
-eval "$(zoxide init zsh)"
+if command -v zoxide >/dev/null 2>&1; then
+    eval "$(zoxide init zsh)"
+fi
 
 # =====================================================
 # User preferences

@@ -72,7 +72,10 @@
         "format-linked": "  {ifname} (No IP)",
         "format": "  Connected",
         "format-disconnected": "  Disconnected",
-        "interval": 60,
+        "tooltip-format-ethernet": "Wired connection\nInterface: {ifname}\nIPv4: {ipaddr}/{cidr}\nGateway: {gwaddr}\nDownload: {bandwidthDownBytes}\nUpload: {bandwidthUpBytes}",
+        "tooltip-format-wifi": "Wi-Fi: {essid}\nInterface: {ifname}\nBSSID: {bssid}\nIPv4: {ipaddr}/{cidr}\nGateway: {gwaddr}\nSignal: {signalStrength}% ({signaldBm} dBm)\nFrequency: {frequency} GHz\nDownload: {bandwidthDownBytes}\nUpload: {bandwidthUpBytes}",
+        "tooltip-format-disconnected": "Network disconnected",
+        "interval": 5,
         "on-click": "~/.config/hypr/scripts/rofi-wifi.sh",
         "on-click-right": "nm-connection-editor"
     },
@@ -86,7 +89,7 @@
     },
     "custom/power":{
     	"format":"󰐥",
-      "on-click": "wlogout -b 6 -c 16 -r 0 -T 450 -B 450 -L 200 -R 200",
+      "on-click": "~/.config/hypr/scripts/modal-menu-launch.sh wlogout -b 6 -c 16 -r 0 -T 450 -B 450 -L 200 -R 200",
     },
     "custom/notification":{
     	"format": "󱅫",
