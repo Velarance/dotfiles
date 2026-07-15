@@ -63,8 +63,41 @@ if ! HOME="${local_home}" bash -c '
     cmp -s \
         "${HOME}/.config/hypr/conf/local.conf.example" \
         "${HOME}/.config/hypr/conf/local.conf"
+    [[ -f "${HOME}/.config/hypr/monitors.conf" ]]
+    [[ ! -s "${HOME}/.config/hypr/monitors.conf" ]]
+    [[ -f "${HOME}/.config/hypr/workspaces.conf" ]]
+    [[ ! -s "${HOME}/.config/hypr/workspaces.conf" ]]
+    printf "generated monitor sentinel\n" > "${HOME}/.config/hypr/monitors.conf"
+    printf "generated workspace sentinel\n" > "${HOME}/.config/hypr/workspaces.conf"
+    setup_local_config
+    [[ "$(< "${HOME}/.config/hypr/monitors.conf")" == "generated monitor sentinel" ]]
+    [[ "$(< "${HOME}/.config/hypr/workspaces.conf")" == "generated workspace sentinel" ]]
 ' bash "${INSTALLER}"; then
-    fail "setup_local_config must copy and preserve local.conf.example"
+    fail "setup_local_config must preserve templates and generated display state"
+fi
+
+symlink_home="${test_tmp}/symlink-home"
+symlink_hypr="${test_tmp}/symlink-target/hypr"
+mkdir -p "${symlink_home}/.config" "${symlink_hypr}/conf"
+printf 'env = SYMLINK_TEST,1\n' > "${symlink_hypr}/conf/local.conf.example"
+ln -s "${symlink_hypr}" "${symlink_home}/.config/hypr"
+
+if ! HOME="${symlink_home}" bash -c '
+    set -euo pipefail
+    source "$1"
+    print_header() { :; }
+    print_success() { :; }
+    print_warning() { :; }
+    setup_local_config
+    [[ -f "$2/monitors.conf" ]]
+    [[ -f "$2/workspaces.conf" ]]
+    printf "symlink monitor sentinel\n" > "$2/monitors.conf"
+    printf "symlink workspace sentinel\n" > "$2/workspaces.conf"
+    setup_local_config
+    [[ "$(< "$2/monitors.conf")" == "symlink monitor sentinel" ]]
+    [[ "$(< "$2/workspaces.conf")" == "symlink workspace sentinel" ]]
+' bash "${INSTALLER}" "${symlink_hypr}"; then
+    fail "setup_local_config must preserve generated state through the Hyprland directory symlink"
 fi
 
 grep -Fq 'with_retry "nvm install" bash -o pipefail -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_ver}/install.sh | PROFILE=/dev/null bash"' \

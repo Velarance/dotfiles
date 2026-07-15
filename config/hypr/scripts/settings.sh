@@ -47,6 +47,7 @@ run_in_terminal() {
 add_command "Network" nm-connection-editor
 add_command "Audio" pavucontrol
 add_command "Audio effects" easyeffects
+add_command "Displays" nwg-displays
 [[ -x "${WALLPAPER_SCRIPT}" ]] && entries+=("Wallpaper")
 if command_exists pacseek && terminal_available; then
     entries+=("Packages")
@@ -75,6 +76,7 @@ case "${selection}" in
     "Network") exec nm-connection-editor ;;
     "Audio") exec pavucontrol ;;
     "Audio effects") exec easyeffects ;;
+    "Displays") exec nwg-displays ;;
     "Wallpaper") exec "${WALLPAPER_SCRIPT}" select ;;
     "Packages") run_in_terminal close pacseek ;;
     "Dotfiles health") run_in_terminal hold "${DOCTOR_SCRIPT}" ;;

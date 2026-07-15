@@ -375,18 +375,30 @@ setup_local_config() {
 
     local local_conf="${CONFIG_DIR}/hypr/conf/local.conf"
     local example_conf="${CONFIG_DIR}/hypr/conf/local.conf.example"
+    local generated_name generated_conf
 
     if [[ ! -f "${local_conf}" ]]; then
         if [[ -f "${example_conf}" ]]; then
             cp -- "${example_conf}" "${local_conf}"
             print_success "Created local.conf from example"
-            print_warning "Edit ~/.config/hypr/conf/local.conf for per-machine overrides (monitors, hyprsplit, env)"
+            print_warning "Use nwg-displays for monitor layout; edit local.conf only for other per-machine overrides"
         else
             print_warning "local.conf.example not found, skipping"
         fi
     else
         print_success "local.conf already exists"
     fi
+
+    for generated_name in monitors workspaces; do
+        generated_conf="${CONFIG_DIR}/hypr/${generated_name}.conf"
+        if [[ -e "${generated_conf}" || -L "${generated_conf}" ]]; then
+            print_success "nwg-displays ${generated_name} configuration already exists"
+        else
+            mkdir -p -- "${generated_conf%/*}"
+            : > "${generated_conf}"
+            print_success "Created an empty nwg-displays ${generated_name} configuration"
+        fi
+    done
 }
 
 setup_wallpaper_dir() {

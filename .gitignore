@@ -26,6 +26,10 @@ config/hypr/conf/local.conf
 # Auto-generated files - never commit
 config/gtk-3.0/bookmarks
 config/hypr/hyprpaper.conf
+config/hypr/monitors.conf
+config/hypr/monitors.lua
+config/hypr/workspaces.conf
+config/hypr/workspaces.lua
 
 # Temporary editor files
 *-[0-9]*[0-9]

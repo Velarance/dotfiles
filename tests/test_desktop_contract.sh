@@ -43,6 +43,7 @@ required_session_packages=(
     gst-plugins-ugly
     xdg-utils
     firefox
+    nwg-displays
 )
 
 for package in "${required_session_packages[@]}"; do
@@ -98,6 +99,30 @@ dbus_updates=$(grep -hF 'dbus-update-activation-environment --systemd WAYLAND_DI
 [[ "${dbus_updates}" -eq 1 ]] \
     || fail "the systemd D-Bus environment must be imported exactly once"
 
+fallback_monitor_line=$(grep -nFx 'source = ~/dotfiles/config/hypr/conf/monitor.conf' "${hyprland}" \
+    | cut -d: -f1 || true)
+generated_monitor_line=$(grep -nFx 'source = ~/.config/hypr/monitors.conf' "${hyprland}" \
+    | cut -d: -f1 || true)
+generated_workspace_line=$(grep -nFx 'source = ~/.config/hypr/workspaces.conf' "${hyprland}" \
+    | cut -d: -f1 || true)
+[[ -n "${fallback_monitor_line}" && -n "${generated_monitor_line}" && -n "${generated_workspace_line}" ]] \
+    || fail "Hyprland must load nwg-displays monitor and workspace configurations"
+[[ "${generated_monitor_line}" -eq $((fallback_monitor_line + 1)) ]] \
+    || fail "generated monitor rules must load immediately after the generic fallback"
+[[ "${generated_workspace_line}" -eq $((generated_monitor_line + 1)) ]] \
+    || fail "generated workspace assignments must load after monitor rules"
+
+generated_hypr_files=(
+    config/hypr/monitors.conf
+    config/hypr/monitors.lua
+    config/hypr/workspaces.conf
+    config/hypr/workspaces.lua
+)
+for generated_file in "${generated_hypr_files[@]}"; do
+    git -C "${ROOT}" check-ignore -q "${generated_file}" \
+        || fail "${generated_file} must remain machine-specific and ignored"
+done
+
 settings_script="${ROOT}/config/hypr/scripts/settings.sh"
 [[ -x "${settings_script}" ]] || fail "settings menu script is missing or not executable"
 grep -Fq 'exec, ~/.config/hypr/scripts/settings.sh' "${ROOT}/config/hypr/conf/keybinding.conf" \
@@ -122,6 +147,40 @@ minimal_menu=$(DOTFILES_DIR="${ROOT}" PATH=/nonexistent /usr/bin/bash "${setting
     || fail "settings menu must tolerate unavailable optional tools"
 [[ "${minimal_menu}" == "Wallpaper" ]] \
     || fail "settings menu must retain available entries during a partial install"
+
+settings_tmp=$(mktemp -d)
+trap 'rm -rf -- "${settings_tmp}"' EXIT
+touch "${settings_tmp}/nwg-displays"
+chmod +x "${settings_tmp}/nwg-displays"
+display_menu=$(DOTFILES_DIR="${ROOT}" PATH="${settings_tmp}" /usr/bin/bash "${settings_script}" --list) \
+    || fail "settings menu must detect nwg-displays"
+[[ "${display_menu}" == $'Displays\nWallpaper' ]] \
+    || fail "settings menu must expose Displays when nwg-displays is installed"
+grep -Fq '"Displays") exec nwg-displays ;;' "${settings_script}" \
+    || fail "settings menu must launch nwg-displays"
+
+cat > "${settings_tmp}/rofi" <<'FAKE_ROFI'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'Displays\n'
+FAKE_ROFI
+cat > "${settings_tmp}/nwg-displays" <<'FAKE_NWG_DISPLAYS'
+#!/usr/bin/env bash
+set -euo pipefail
+printf 'launched\n' > "${NWG_DISPLAYS_LOG:?}"
+FAKE_NWG_DISPLAYS
+chmod +x "${settings_tmp}/rofi" "${settings_tmp}/nwg-displays"
+settings_launch_log="${settings_tmp}/nwg-displays.log"
+if ! HOME="${settings_tmp}/home" \
+    DOTFILES_DIR="${ROOT}" \
+    DOTFILES_MODAL_MENU_LOCK="${settings_tmp}/settings.lock" \
+    NWG_DISPLAYS_LOG="${settings_launch_log}" \
+    PATH="${settings_tmp}:/usr/bin:/bin" \
+    /usr/bin/bash "${settings_script}"; then
+    fail "settings menu failed while launching Displays"
+fi
+grep -Fxq 'launched' "${settings_launch_log}" \
+    || fail "settings menu did not execute nwg-displays after selecting Displays"
 
 network_block=$(sed -n '/^[[:space:]]*"network": {/,/^[[:space:]]*},/p' \
     "${ROOT}/config/waybar/config")
