@@ -38,3 +38,4 @@ config/hypr/workspaces.lua
 CLAUDE.md
 install.log
 docs/*
+.worktrees/
