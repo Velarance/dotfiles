@@ -27,7 +27,7 @@ readonly -a AMADEUS_THEME_FILES=(
     "theme.conf"
     "vk.qml"
 )
-readonly AMADEUS_CHECKSUM_MANIFEST_SHA256="cf10a43c266801a5305657d10fac90fb26e5b82db8d439bd803c454eaa5196d7"
+readonly AMADEUS_CHECKSUM_MANIFEST_SHA256="a4caac995ce54c19bf7b22a41c4ba4ff23012fe1a67c7e80159d583724757ede"
 
 # Colors for output
 readonly RED='\033[0;31m'

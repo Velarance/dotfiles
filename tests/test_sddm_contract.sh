@@ -410,6 +410,15 @@ if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
     grep -Fq 'source: "amadeus-secondary.png"' <<< "${secondary_background_body}" \
         || fail 'the permanent base must use amadeus-secondary.png'
 
+    power_menu_body="$(qml_object_body "${MAIN_QML}" SpComboBox amadeus_power)"
+    [[ -n "${power_menu_body}" ]] \
+        || fail 'Amadeus must define the power menu'
+    grep -Fq 'x: 1858/amadeus_root.scalingX + diffX - width' <<< "${power_menu_body}" \
+        || fail 'power menu must keep the approved right-frame inset'
+    if grep -Fq 'x: 1870/amadeus_root.scalingX + diffX - width' <<< "${power_menu_body}"; then
+        fail 'power menu must not overlap the right artwork frame'
+    fi
+
     submit_transition_body="$(qml_object_body "${MAIN_QML}" NumberAnimation submitTransition)"
     [[ -n "${submit_transition_body}" ]] \
         || fail 'Amadeus must define an immediate submit transition'
@@ -463,7 +472,7 @@ for theme_file in \
     require_readable "${THEME_DIR}/${theme_file}" "vendored Amadeus ${theme_file}"
 done
 if require_readable "${CHECKSUMS}" 'Amadeus checksum manifest'; then
-    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == 'cf10a43c266801a5305657d10fac90fb26e5b82db8d439bd803c454eaa5196d7' ]] \
+    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == 'a4caac995ce54c19bf7b22a41c4ba4ff23012fe1a67c7e80159d583724757ede' ]] \
         || fail 'Amadeus checksum manifest must match the pinned installer digest'
 fi
 
@@ -728,7 +737,7 @@ else
         components/SpComboBox.qml components/SpTextBox.qml
         fonts/TakaoMincho.ttf metadata.desktop theme.conf vk.qml
     )
-    AMADEUS_CHECKSUM_MANIFEST_SHA256='cf10a43c266801a5305657d10fac90fb26e5b82db8d439bd803c454eaa5196d7'
+    AMADEUS_CHECKSUM_MANIFEST_SHA256='a4caac995ce54c19bf7b22a41c4ba4ff23012fe1a67c7e80159d583724757ede'
     print_error() { :; }
     eval "${validator_body}"
     if ! validate_amadeus_theme_tree "${THEME_DIR}"; then

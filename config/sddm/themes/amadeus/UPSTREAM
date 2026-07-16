@@ -4,4 +4,5 @@ Tree: aabdd71362fc9066449f5b7d63e2bbd711ce5ac8
 Retrieved: 2026-07-16
 Local-Change: theme.conf sets MirrorScreens=false
 Local-Change: Main.qml uses a submit-time login transition with failed-login restoration
+Local-Change: Main.qml aligns the power menu to the artwork frame
 Local-Change: kurisu.gif removed

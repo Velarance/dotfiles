@@ -245,7 +245,7 @@ Rectangle {
     width: Math.max(200/amadeus_root.scalingX, amadeus_power.maxDelegateWidth + 80/amadeus_root.scalingX)
     height: 40/amadeus_root.scalingY
 
-    x: 1870/amadeus_root.scalingX + diffX - width
+    x: 1858/amadeus_root.scalingX + diffX - width
     y: 1000/amadeus_root.scalingY + diffY
 
     model: powerModel
