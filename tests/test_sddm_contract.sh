@@ -337,10 +337,11 @@ if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
     password_clear_line="$(line_number "${login_failed_body}" 'amadeus_password[.]text = ""')"
     username_focus_line="$(line_number "${login_failed_body}" 'amadeus_username[.]forceActiveFocus[(][)]')"
     error_start_line="$(line_number "${login_failed_body}" 'errorSequence[.]start[(][)]')"
-    if [[ -n "${error_stop_line}" && -n "${error_reset_line}" \
-        && -n "${username_clear_line}" && -n "${password_clear_line}" \
-        && -n "${username_focus_line}" && -n "${error_start_line}" ]] \
-        && ! (( error_stop_line < error_reset_line \
+    if [[ -z "${error_stop_line}" || -z "${error_reset_line}" \
+        || -z "${username_clear_line}" || -z "${password_clear_line}" \
+        || -z "${username_focus_line}" || -z "${error_start_line}" ]]; then
+        fail 'failed login must include every required feedback step'
+    elif ! (( error_stop_line < error_reset_line \
             && error_reset_line < username_clear_line \
             && username_clear_line < password_clear_line \
             && password_clear_line < username_focus_line \
