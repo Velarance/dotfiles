@@ -11,6 +11,7 @@ SDDM_CONF="${ROOT}/config/sddm/sddm.conf"
 THEME_DIR="${ROOT}/config/sddm/themes/amadeus"
 METADATA="${THEME_DIR}/metadata.desktop"
 THEME_CONF="${THEME_DIR}/theme.conf"
+MAIN_QML="${THEME_DIR}/Main.qml"
 UPSTREAM="${THEME_DIR}/UPSTREAM"
 CHECKSUMS="${THEME_DIR}/SHA256SUMS"
 OVERRIDE="${ROOT}/config/sddm/dotfiles-override.conf"
@@ -91,6 +92,57 @@ installer_function_body() {
             }
         }
     ' "${INSTALLER}"
+}
+
+qml_signal_handler_body() {
+    local qml_path="$1"
+    local handler_name="$2"
+
+    awk -v handler_name="${handler_name}" '
+        $0 ~ ("^[[:space:]]*function[[:space:]]+" handler_name "[[:space:]]*\\([^)]*\\)[[:space:]]*\\{") {
+            capture = 1
+        }
+        capture {
+            print
+            opens = gsub(/\{/, "{")
+            closes = gsub(/\}/, "}")
+            depth += opens - closes
+            if (depth == 0) {
+                exit
+            }
+        }
+    ' "${qml_path}"
+}
+
+qml_object_body() {
+    local qml_path="$1"
+    local object_type="$2"
+    local object_id="$3"
+
+    awk -v object_type="${object_type}" -v object_id="${object_id}" '
+        !capture && $0 ~ ("^[[:space:]]*" object_type "[[:space:]]*\\{") {
+            capture = 1
+            body = ""
+            depth = 0
+            found_id = 0
+        }
+        capture {
+            body = body $0 ORS
+            if ($0 ~ ("^[[:space:]]*id[[:space:]]*:[[:space:]]*" object_id "[[:space:]]*$")) {
+                found_id = 1
+            }
+            opens = gsub(/\{/, "{")
+            closes = gsub(/\}/, "}")
+            depth += opens - closes
+            if (depth == 0) {
+                if (found_id) {
+                    printf "%s", body
+                    exit
+                }
+                capture = 0
+            }
+        }
+    ' "${qml_path}"
 }
 
 line_number() {
@@ -245,15 +297,125 @@ if require_readable "${THEME_CONF}" 'vendored Amadeus theme.conf'; then
     assert_setting "${THEME_CONF}" MirrorScreens false
 fi
 
+if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
+    grep -Fq 'property bool authenticating: false' "${MAIN_QML}" \
+        || fail 'Amadeus must track an in-flight authentication request'
+    grep -Fq 'if (authenticating)' "${MAIN_QML}" \
+        || fail 'Amadeus must reject duplicate login submissions'
+    grep -Fq 'authenticating = true' "${MAIN_QML}" \
+        || fail 'Amadeus must mark authentication in flight before submitting'
+    grep -Fq 'function dismissLoginError()' "${MAIN_QML}" \
+        || fail 'Amadeus must define reusable error dismissal'
+    [[ "$(grep -Fc 'onTextChanged: amadeus_root.dismissLoginError()' "${MAIN_QML}")" -eq 2 ]] \
+        || fail 'both credential inputs must dismiss stale login feedback'
+
+    login_succeeded_body="$(qml_signal_handler_body "${MAIN_QML}" onLoginSucceeded)"
+    [[ -n "${login_succeeded_body}" ]] \
+        || fail 'Amadeus must use a Qt6-compatible login-success handler'
+    grep -Fq 'successTransition.start()' <<< "${login_succeeded_body}" \
+        || fail 'Amadeus must transition only after login succeeds'
+    [[ "$(grep -Fc 'successTransition.start()' "${MAIN_QML}")" -eq 1 ]] \
+        || fail 'the success transition must only start from onLoginSucceeded'
+
+    login_failed_body="$(qml_signal_handler_body "${MAIN_QML}" onLoginFailed)"
+    [[ -n "${login_failed_body}" ]] \
+        || fail 'Amadeus must use a Qt6-compatible login-failure handler'
+    grep -Fq 'amadeus_root.authenticating = false' <<< "${login_failed_body}" \
+        || fail 'failed login must re-enable authentication submission'
+    grep -Fq 'amadeus_username.text = ""' <<< "${login_failed_body}" \
+        || fail 'failed login must clear the username'
+    grep -Fq 'amadeus_password.text = ""' <<< "${login_failed_body}" \
+        || fail 'failed login must clear the password'
+    grep -Fq 'amadeus_username.forceActiveFocus()' <<< "${login_failed_body}" \
+        || fail 'failed login must focus the username field'
+    grep -Fq 'errorSequence.start()' <<< "${login_failed_body}" \
+        || fail 'failed login must start the feedback sequence'
+
+    error_stop_line="$(line_number "${login_failed_body}" 'errorSequence[.]stop[(][)]')"
+    error_reset_line="$(line_number "${login_failed_body}" 'loginError[.]opacity = 0[.]0')"
+    username_clear_line="$(line_number "${login_failed_body}" 'amadeus_username[.]text = ""')"
+    password_clear_line="$(line_number "${login_failed_body}" 'amadeus_password[.]text = ""')"
+    username_focus_line="$(line_number "${login_failed_body}" 'amadeus_username[.]forceActiveFocus[(][)]')"
+    error_start_line="$(line_number "${login_failed_body}" 'errorSequence[.]start[(][)]')"
+    if [[ -n "${error_stop_line}" && -n "${error_reset_line}" \
+        && -n "${username_clear_line}" && -n "${password_clear_line}" \
+        && -n "${username_focus_line}" && -n "${error_start_line}" ]] \
+        && ! (( error_stop_line < error_reset_line \
+            && error_reset_line < username_clear_line \
+            && username_clear_line < password_clear_line \
+            && password_clear_line < username_focus_line \
+            && username_focus_line < error_start_line )); then
+        fail 'failed login must reset feedback, clear fields, focus username, then show feedback'
+    fi
+
+    login_error_body="$(qml_object_body "${MAIN_QML}" Text loginError)"
+    [[ -n "${login_error_body}" ]] \
+        || fail 'failed login must define visible feedback'
+    grep -Fq 'text: "incorrect data"' <<< "${login_error_body}" \
+        || fail 'failed login must show the approved lowercase message'
+    grep -Fq 'color: "#e06c75"' <<< "${login_error_body}" \
+        || fail 'failed login feedback must use muted red'
+    grep -Fq 'font.family: takao_mincho.name' <<< "${login_error_body}" \
+        || fail 'failed login feedback must use TakaoMincho'
+
+    primary_layer_body="$(qml_object_body "${MAIN_QML}" Item primaryLayer)"
+    [[ -n "${primary_layer_body}" ]] \
+        || fail 'Amadeus must group primary artwork and UI in one layer'
+    grep -Fq 'id: bg' <<< "${primary_layer_body}" \
+        || fail 'the primary layer must contain the login artwork'
+    grep -Fq 'id: uiLayer' <<< "${primary_layer_body}" \
+        || fail 'the primary layer must contain the complete login UI'
+    grep -Fq 'enabled: !amadeus_root.authenticating' <<< "${primary_layer_body}" \
+        || fail 'the primary UI must disable interaction while authenticating'
+
+    secondary_background_body="$(qml_object_body "${MAIN_QML}" Image secondaryBackground)"
+    [[ -n "${secondary_background_body}" ]] \
+        || fail 'Amadeus must keep the secondary artwork loaded under the primary layer'
+    grep -Fq 'source: "amadeus-secondary.png"' <<< "${secondary_background_body}" \
+        || fail 'the permanent base must use amadeus-secondary.png'
+
+    success_transition_body="$(qml_object_body "${MAIN_QML}" NumberAnimation successTransition)"
+    [[ -n "${success_transition_body}" ]] \
+        || fail 'Amadeus must define a success transition'
+    grep -Fq 'target: primaryLayer' <<< "${success_transition_body}" \
+        || fail 'success transition must fade the complete primary layer'
+    grep -Fq 'property: "opacity"' <<< "${success_transition_body}" \
+        || fail 'success transition must animate primary-layer opacity'
+    grep -Fq 'from: 1.0' <<< "${success_transition_body}" \
+        || fail 'success transition must begin with the primary layer visible'
+    grep -Fq 'to: 0.0' <<< "${success_transition_body}" \
+        || fail 'success transition must reveal the secondary base'
+    grep -Fq 'duration: 220' <<< "${success_transition_body}" \
+        || fail 'success transition must complete in 220 ms'
+    grep -Fq 'easing.type: Easing.OutCubic' <<< "${success_transition_body}" \
+        || fail 'success transition must use OutCubic easing'
+
+    error_sequence_body="$(qml_object_body "${MAIN_QML}" SequentialAnimation errorSequence)"
+    [[ -n "${error_sequence_body}" ]] \
+        || fail 'Amadeus must define a failed-login feedback sequence'
+    grep -Fq 'duration: 120' <<< "${error_sequence_body}" \
+        || fail 'failed-login feedback must fade in for 120 ms'
+    grep -Fq 'PauseAnimation { duration: 2120 }' <<< "${error_sequence_body}" \
+        || fail 'failed-login feedback must remain visible for 2120 ms'
+    grep -Fq 'duration: 260' <<< "${error_sequence_body}" \
+        || fail 'failed-login feedback must fade out for 260 ms'
+
+    if grep -Eq 'AnimatedImage|kurisu\.gif|loginSequence' "${MAIN_QML}"; then
+        fail 'Amadeus must not retain the GIF sequence'
+    fi
+fi
+[[ ! -e "${THEME_DIR}/kurisu.gif" ]] \
+    || fail 'the unused Amadeus GIF asset must be removed'
+
 for theme_file in \
     COPYING IPA_Font_License_Agreement_v1.0.txt Main.qml \
     amadeus-background.png amadeus-secondary.png \
     components/SpComboBox.qml components/SpTextBox.qml \
-    fonts/TakaoMincho.ttf kurisu.gif vk.qml; do
+    fonts/TakaoMincho.ttf vk.qml; do
     require_readable "${THEME_DIR}/${theme_file}" "vendored Amadeus ${theme_file}"
 done
 if require_readable "${CHECKSUMS}" 'Amadeus checksum manifest'; then
-    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == 'c7fd03497037e11af13f2ef7e2043d6a40814443a0a21bcf844ff3f45dd903f7' ]] \
+    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == '30caf38354b222e5b7d6a605501a6550d01fd7db82af56d161822dc17eb36c0c' ]] \
         || fail 'Amadeus checksum manifest must match the pinned installer digest'
 fi
 
@@ -263,6 +425,8 @@ if require_readable "${UPSTREAM}" 'Amadeus upstream provenance'; then
         || fail 'Amadeus provenance must name the upstream repository'
     grep -Fq 'ad42165b22e4d7ce69dcef8fef6caa3e9d6f88f3' "${UPSTREAM}" \
         || fail 'Amadeus provenance must pin the reviewed upstream commit'
+    grep -Fq 'result-driven login feedback' "${UPSTREAM}" \
+        || fail 'Amadeus provenance must describe the local login feedback'
 fi
 
 if require_readable "${THEME_DIR}/components/SpTextBox.qml" 'Amadeus Qt5Compat component'; then
@@ -514,9 +678,9 @@ else
         COPYING IPA_Font_License_Agreement_v1.0.txt Main.qml
         amadeus-background.png amadeus-secondary.png
         components/SpComboBox.qml components/SpTextBox.qml
-        fonts/TakaoMincho.ttf kurisu.gif metadata.desktop theme.conf vk.qml
+        fonts/TakaoMincho.ttf metadata.desktop theme.conf vk.qml
     )
-    AMADEUS_CHECKSUM_MANIFEST_SHA256='c7fd03497037e11af13f2ef7e2043d6a40814443a0a21bcf844ff3f45dd903f7'
+    AMADEUS_CHECKSUM_MANIFEST_SHA256='30caf38354b222e5b7d6a605501a6550d01fd7db82af56d161822dc17eb36c0c'
     print_error() { :; }
     eval "${validator_body}"
     if ! validate_amadeus_theme_tree "${THEME_DIR}"; then

@@ -17,12 +17,21 @@ Rectangle {
   property var inputColor: "#debf54"
   property var glow: "#60e6b656"
   property bool isPrimary: (config.MirrorScreens === "true") || primaryScreen
+  property bool authenticating: false
 
   signal tryLogin()
 
-  onTryLogin : {
-    loginSequence.start()
-    sddm.login(amadeus_username.text, amadeus_password.text, amadeus_session.currentIndex);
+  function dismissLoginError() {
+    errorSequence.stop()
+    loginError.opacity = 0.0
+  }
+
+  onTryLogin: {
+    if (authenticating)
+      return
+    dismissLoginError()
+    authenticating = true
+    sddm.login(amadeus_username.text, amadeus_password.text, amadeus_session.currentIndex)
   }
 
   FontLoader {
@@ -39,19 +48,23 @@ Rectangle {
     ListElement { name: "Restart" }
     ListElement { name: "Shut Down" }
   }
-  
-  Loader {
-      id: vkloader
-      source: "vk.qml"
-  }
 
   Connections {
     target: sddm
 
-    onLoginSucceeded: {
+    function onLoginSucceeded() {
+      successTransition.start()
     }
 
-    onLoginFailed: {
+    function onLoginFailed() {
+      amadeus_root.authenticating = false
+      errorSequence.stop()
+      loginError.opacity = 0.0
+      amadeus_username.text = ""
+      amadeus_password.text = ""
+      if (isPrimary)
+        amadeus_username.forceActiveFocus()
+      errorSequence.start()
     }
   }
 
@@ -70,9 +83,23 @@ Rectangle {
   }
 
   Image {
+    id: secondaryBackground
+    anchors.fill: parent
+    source: "amadeus-secondary.png"
+    fillMode: Image.PreserveAspectFit
+    smooth: true
+  }
+
+  Item {
+    id: primaryLayer
+    anchors.fill: parent
+    visible: isPrimary
+    opacity: 1.0
+
+  Image {
     id: bg
     anchors.fill: parent
-    source: isPrimary ? "amadeus-background.png" : "amadeus-secondary.png"
+    source: "amadeus-background.png"
     fillMode: Image.PreserveAspectFit
 
     clip: true
@@ -80,8 +107,19 @@ Rectangle {
     smooth: true
   }
 
+  Item {
+    id: uiLayer
+    anchors.fill: parent
+    enabled: !amadeus_root.authenticating
+
+  Loader {
+    id: vkloader
+    source: "vk.qml"
+  }
+
   SpTextBox {
     id: amadeus_username
+    onTextChanged: amadeus_root.dismissLoginError()
 
     x: 683/amadeus_root.scalingX + diffX
     y: 633/amadeus_root.scalingY + diffY
@@ -107,6 +145,7 @@ Rectangle {
 
   SpTextBox {
     id: amadeus_password
+    onTextChanged: amadeus_root.dismissLoginError()
 
     x: 683/amadeus_root.scalingX + diffX
     y: 699/amadeus_root.scalingY + diffY
@@ -137,6 +176,20 @@ Rectangle {
         event.accepted = true;
       }
     }
+  }
+
+  Text {
+    id: loginError
+    x: 683/amadeus_root.scalingX + diffX
+    y: 765/amadeus_root.scalingY + diffY
+    width: 560/amadeus_root.scalingX
+    text: "incorrect data"
+    color: "#e06c75"
+    opacity: 0.0
+    horizontalAlignment: Text.AlignHCenter
+    font.family: takao_mincho.name
+    font.pixelSize: 22/amadeus_root.scalingY
+    font.bold: true
   }
 
   MouseArea {
@@ -235,60 +288,37 @@ Rectangle {
     else
       amadeus_password.focus = true
   }
+  }
+  }
 
-
-  AnimatedImage {
-    id: splashGif
-    source: "kurisu.gif"
-
-    anchors.centerIn: parent
-
-    opacity: 0.0
-    scale: 0.5
+  NumberAnimation {
+    id: successTransition
+    target: primaryLayer
+    property: "opacity"
+    from: 1.0
+    to: 0.0
+    duration: 220
+    easing.type: Easing.OutCubic
+  }
 
   SequentialAnimation {
-    id: loginSequence
-    ParallelAnimation {
-      NumberAnimation {
-        target: splashGif
-        property: "opacity"
-        from: 0.0
-        to: 1.0
-        duration: 1000
-        easing.type: Easing.OutExpo
-      }
-      NumberAnimation {
-        target: splashGif
-        property: "scale"
-        from: 0.5
-        to: 1.0
-        duration: 1000
-        easing.type: Easing.OutExpo
-      }
+    id: errorSequence
+    NumberAnimation {
+      target: loginError
+      property: "opacity"
+      from: 0.0
+      to: 1.0
+      duration: 120
+      easing.type: Easing.OutCubic
     }
-
-    PauseAnimation {
-      duration: 500
+    PauseAnimation { duration: 2120 }
+    NumberAnimation {
+      target: loginError
+      property: "opacity"
+      from: 1.0
+      to: 0.0
+      duration: 260
+      easing.type: Easing.InCubic
     }
-
-    ParallelAnimation {
-      NumberAnimation {
-        target: splashGif
-        property: "opacity"
-        from: 1.0
-        to: 0.0
-        duration: 1000
-        easing.type: Easing.InExpo
-      }
-      NumberAnimation {
-        target: splashGif
-        property: "scale"
-        from: 1.0
-        to: 0.5
-        duration: 1000
-        easing.type: Easing.InExpo
-      }
-    }
-  }
   }
 }

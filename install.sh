@@ -23,12 +23,11 @@ readonly -a AMADEUS_THEME_FILES=(
     "components/SpComboBox.qml"
     "components/SpTextBox.qml"
     "fonts/TakaoMincho.ttf"
-    "kurisu.gif"
     "metadata.desktop"
     "theme.conf"
     "vk.qml"
 )
-readonly AMADEUS_CHECKSUM_MANIFEST_SHA256="c7fd03497037e11af13f2ef7e2043d6a40814443a0a21bcf844ff3f45dd903f7"
+readonly AMADEUS_CHECKSUM_MANIFEST_SHA256="30caf38354b222e5b7d6a605501a6550d01fd7db82af56d161822dc17eb36c0c"
 
 # Colors for output
 readonly RED='\033[0;31m'
