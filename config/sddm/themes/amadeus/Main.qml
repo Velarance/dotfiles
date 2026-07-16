@@ -31,6 +31,8 @@ Rectangle {
       return
     dismissLoginError()
     authenticating = true
+    failureRestore.stop()
+    submitTransition.start()
     sddm.login(amadeus_username.text, amadeus_password.text, amadeus_session.currentIndex)
   }
 
@@ -52,18 +54,16 @@ Rectangle {
   Connections {
     target: sddm
 
-    function onLoginSucceeded() {
-      successTransition.start()
-    }
-
     function onLoginFailed() {
       amadeus_root.authenticating = false
       errorSequence.stop()
+      submitTransition.stop()
       loginError.opacity = 0.0
       amadeus_username.text = ""
       amadeus_password.text = ""
       if (isPrimary)
         amadeus_username.forceActiveFocus()
+      failureRestore.start()
       errorSequence.start()
     }
   }
@@ -292,12 +292,20 @@ Rectangle {
   }
 
   NumberAnimation {
-    id: successTransition
+    id: submitTransition
     target: primaryLayer
     property: "opacity"
-    from: 1.0
     to: 0.0
-    duration: 220
+    duration: 120
+    easing.type: Easing.OutCubic
+  }
+
+  NumberAnimation {
+    id: failureRestore
+    target: primaryLayer
+    property: "opacity"
+    to: 1.0
+    duration: 140
     easing.type: Easing.OutCubic
   }
 

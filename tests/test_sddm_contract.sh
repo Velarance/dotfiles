@@ -114,6 +114,26 @@ qml_signal_handler_body() {
     ' "${qml_path}"
 }
 
+qml_property_handler_body() {
+    local qml_path="$1"
+    local handler_name="$2"
+
+    awk -v handler_name="${handler_name}" '
+        $0 ~ ("^[[:space:]]*" handler_name "[[:space:]]*:[[:space:]]*\\{") {
+            capture = 1
+        }
+        capture {
+            print
+            opens = gsub(/\{/, "{")
+            closes = gsub(/\}/, "}")
+            depth += opens - closes
+            if (depth == 0) {
+                exit
+            }
+        }
+    ' "${qml_path}"
+}
+
 qml_object_body() {
     local qml_path="$1"
     local object_type="$2"
@@ -309,13 +329,24 @@ if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
     [[ "$(grep -Fc 'onTextChanged: amadeus_root.dismissLoginError()' "${MAIN_QML}")" -eq 2 ]] \
         || fail 'both credential inputs must dismiss stale login feedback'
 
-    login_succeeded_body="$(qml_signal_handler_body "${MAIN_QML}" onLoginSucceeded)"
-    [[ -n "${login_succeeded_body}" ]] \
-        || fail 'Amadeus must use a Qt6-compatible login-success handler'
-    grep -Fq 'successTransition.start()' <<< "${login_succeeded_body}" \
-        || fail 'Amadeus must transition only after login succeeds'
-    [[ "$(grep -Fc 'successTransition.start()' "${MAIN_QML}")" -eq 1 ]] \
-        || fail 'the success transition must only start from onLoginSucceeded'
+    try_login_body="$(qml_property_handler_body "${MAIN_QML}" onTryLogin)"
+    [[ -n "${try_login_body}" ]] \
+        || fail 'Amadeus must define its login submission handler'
+    grep -Fq 'submitTransition.start()' <<< "${try_login_body}" \
+        || fail 'Amadeus must start fading as soon as login is submitted'
+    grep -Fq 'sddm.login(' <<< "${try_login_body}" \
+        || fail 'Amadeus login submission must still call SDDM'
+    submit_start_line="$(line_number "${try_login_body}" 'submitTransition[.]start[(][)]')"
+    login_call_line="$(line_number "${try_login_body}" 'sddm[.]login[(]')"
+    if [[ -z "${submit_start_line}" || -z "${login_call_line}" ]] \
+        || (( submit_start_line >= login_call_line )); then
+        fail 'submit fade must start before SDDM authentication'
+    fi
+    [[ "$(grep -Fc 'submitTransition.start()' "${MAIN_QML}")" -eq 1 ]] \
+        || fail 'submit transition must have exactly one start site'
+    if grep -Eq 'successTransition|onLoginSucceeded' "${MAIN_QML}"; then
+        fail 'Amadeus must not wait for the immediately-closing success signal to animate'
+    fi
 
     login_failed_body="$(qml_signal_handler_body "${MAIN_QML}" onLoginFailed)"
     [[ -n "${login_failed_body}" ]] \
@@ -330,6 +361,10 @@ if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
         || fail 'failed login must focus the username field'
     grep -Fq 'errorSequence.start()' <<< "${login_failed_body}" \
         || fail 'failed login must start the feedback sequence'
+    grep -Fq 'submitTransition.stop()' <<< "${login_failed_body}" \
+        || fail 'failed login must stop any in-flight submit fade'
+    grep -Fq 'failureRestore.start()' <<< "${login_failed_body}" \
+        || fail 'failed login must restore the primary UI'
 
     error_stop_line="$(line_number "${login_failed_body}" 'errorSequence[.]stop[(][)]')"
     error_reset_line="$(line_number "${login_failed_body}" 'loginError[.]opacity = 0[.]0')"
@@ -375,21 +410,33 @@ if require_readable "${MAIN_QML}" 'vendored Amadeus login QML'; then
     grep -Fq 'source: "amadeus-secondary.png"' <<< "${secondary_background_body}" \
         || fail 'the permanent base must use amadeus-secondary.png'
 
-    success_transition_body="$(qml_object_body "${MAIN_QML}" NumberAnimation successTransition)"
-    [[ -n "${success_transition_body}" ]] \
-        || fail 'Amadeus must define a success transition'
-    grep -Fq 'target: primaryLayer' <<< "${success_transition_body}" \
-        || fail 'success transition must fade the complete primary layer'
-    grep -Fq 'property: "opacity"' <<< "${success_transition_body}" \
-        || fail 'success transition must animate primary-layer opacity'
-    grep -Fq 'from: 1.0' <<< "${success_transition_body}" \
-        || fail 'success transition must begin with the primary layer visible'
-    grep -Fq 'to: 0.0' <<< "${success_transition_body}" \
-        || fail 'success transition must reveal the secondary base'
-    grep -Fq 'duration: 220' <<< "${success_transition_body}" \
-        || fail 'success transition must complete in 220 ms'
-    grep -Fq 'easing.type: Easing.OutCubic' <<< "${success_transition_body}" \
-        || fail 'success transition must use OutCubic easing'
+    submit_transition_body="$(qml_object_body "${MAIN_QML}" NumberAnimation submitTransition)"
+    [[ -n "${submit_transition_body}" ]] \
+        || fail 'Amadeus must define an immediate submit transition'
+    grep -Fq 'target: primaryLayer' <<< "${submit_transition_body}" \
+        || fail 'submit transition must fade the complete primary layer'
+    grep -Fq 'property: "opacity"' <<< "${submit_transition_body}" \
+        || fail 'submit transition must animate primary-layer opacity'
+    grep -Fq 'to: 0.0' <<< "${submit_transition_body}" \
+        || fail 'submit transition must reveal the secondary base'
+    grep -Fq 'duration: 120' <<< "${submit_transition_body}" \
+        || fail 'submit transition must complete in 120 ms'
+    grep -Fq 'easing.type: Easing.OutCubic' <<< "${submit_transition_body}" \
+        || fail 'submit transition must use OutCubic easing'
+
+    failure_restore_body="$(qml_object_body "${MAIN_QML}" NumberAnimation failureRestore)"
+    [[ -n "${failure_restore_body}" ]] \
+        || fail 'Amadeus must define failed-login UI restoration'
+    grep -Fq 'target: primaryLayer' <<< "${failure_restore_body}" \
+        || fail 'failed-login restoration must target the complete primary layer'
+    grep -Fq 'property: "opacity"' <<< "${failure_restore_body}" \
+        || fail 'failed-login restoration must animate primary-layer opacity'
+    grep -Fq 'to: 1.0' <<< "${failure_restore_body}" \
+        || fail 'failed-login restoration must make the primary UI visible'
+    grep -Fq 'duration: 140' <<< "${failure_restore_body}" \
+        || fail 'failed-login restoration must complete in 140 ms'
+    grep -Fq 'easing.type: Easing.OutCubic' <<< "${failure_restore_body}" \
+        || fail 'failed-login restoration must use OutCubic easing'
 
     error_sequence_body="$(qml_object_body "${MAIN_QML}" SequentialAnimation errorSequence)"
     [[ -n "${error_sequence_body}" ]] \
@@ -416,7 +463,7 @@ for theme_file in \
     require_readable "${THEME_DIR}/${theme_file}" "vendored Amadeus ${theme_file}"
 done
 if require_readable "${CHECKSUMS}" 'Amadeus checksum manifest'; then
-    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == '30caf38354b222e5b7d6a605501a6550d01fd7db82af56d161822dc17eb36c0c' ]] \
+    [[ "$(sha256sum "${CHECKSUMS}" | awk '{print $1}')" == 'cf10a43c266801a5305657d10fac90fb26e5b82db8d439bd803c454eaa5196d7' ]] \
         || fail 'Amadeus checksum manifest must match the pinned installer digest'
 fi
 
@@ -426,7 +473,7 @@ if require_readable "${UPSTREAM}" 'Amadeus upstream provenance'; then
         || fail 'Amadeus provenance must name the upstream repository'
     grep -Fq 'ad42165b22e4d7ce69dcef8fef6caa3e9d6f88f3' "${UPSTREAM}" \
         || fail 'Amadeus provenance must pin the reviewed upstream commit'
-    grep -Fq 'result-driven login feedback' "${UPSTREAM}" \
+    grep -Fq 'submit-time login transition' "${UPSTREAM}" \
         || fail 'Amadeus provenance must describe the local login feedback'
 fi
 
@@ -681,7 +728,7 @@ else
         components/SpComboBox.qml components/SpTextBox.qml
         fonts/TakaoMincho.ttf metadata.desktop theme.conf vk.qml
     )
-    AMADEUS_CHECKSUM_MANIFEST_SHA256='30caf38354b222e5b7d6a605501a6550d01fd7db82af56d161822dc17eb36c0c'
+    AMADEUS_CHECKSUM_MANIFEST_SHA256='cf10a43c266801a5305657d10fac90fb26e5b82db8d439bd803c454eaa5196d7'
     print_error() { :; }
     eval "${validator_body}"
     if ! validate_amadeus_theme_tree "${THEME_DIR}"; then
