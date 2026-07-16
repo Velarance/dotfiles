@@ -28,10 +28,32 @@ grep -Fq 'if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then' "${INSTALLER}" \
 main_body=$(sed -n '/^main() {$/,/^}$/p' "${INSTALLER}")
 optional_call_line=$(grep -nFx '    install_optional_packages' <<< "${main_body}" | cut -d: -f1 || true)
 nautilus_call_line=$(grep -nFx '    setup_nautilus_integration' <<< "${main_body}" | cut -d: -f1 || true)
+symlinks_call_line=$(grep -nFx '    create_symlinks' <<< "${main_body}" | cut -d: -f1 || true)
+user_services_call_line=$(grep -nFx '    setup_user_services' <<< "${main_body}" | cut -d: -f1 || true)
+sddm_call_line=$(grep -nFx '    setup_sddm' <<< "${main_body}" | cut -d: -f1 || true)
+grub_theme_call_line=$(grep -nFx '    setup_grub_theme' <<< "${main_body}" | cut -d: -f1 || true)
+plymouth_call_line=$(grep -nFx '    setup_plymouth' <<< "${main_body}" | cut -d: -f1 || true)
 [[ -n "${optional_call_line}" && -n "${nautilus_call_line}" ]] \
     || fail "main must call setup_nautilus_integration"
 [[ "${nautilus_call_line}" -eq $((optional_call_line + 1)) ]] \
     || fail "main must configure Nautilus immediately after optional packages"
+[[ -n "${symlinks_call_line}" && -n "${user_services_call_line}" ]] \
+    || fail "main must call setup_user_services"
+[[ "${user_services_call_line}" -eq $((symlinks_call_line + 1)) ]] \
+    || fail "main must install user services immediately after config symlinks"
+[[ -n "${sddm_call_line}" && -n "${grub_theme_call_line}" ]] \
+    || fail "main must call setup_grub_theme"
+[[ "${grub_theme_call_line}" -eq $((sddm_call_line + 1)) ]] \
+    || fail "main must configure the GRUB theme immediately after SDDM"
+[[ -n "${plymouth_call_line}" ]] \
+    || fail "main must call setup_plymouth"
+[[ "${plymouth_call_line}" -eq $((grub_theme_call_line + 1)) ]] \
+    || fail "main must configure Plymouth immediately after the GRUB theme"
+
+grep -Fq 'source "${DOTFILES_DIR}/lib/div-meter-plymouth.sh"' "${INSTALLER}" \
+    || fail "install.sh must load the div-meter helper library"
+grep -Fq 'Set up the vendored Divergence Meter Plymouth theme' "${INSTALLER}" \
+    || fail "installer summary must disclose the Plymouth boot change"
 
 if ! source_result=$(timeout 5 bash -c '
     source "$1"
@@ -99,6 +121,188 @@ if ! HOME="${symlink_home}" bash -c '
 ' bash "${INSTALLER}" "${symlink_hypr}"; then
     fail "setup_local_config must preserve generated state through the Hyprland directory symlink"
 fi
+
+service_home="${test_tmp}/service-home"
+service_fake_bin="${test_tmp}/service-fake-bin"
+service_systemctl_log="${test_tmp}/service-systemctl.log"
+mkdir -p "${service_home}" "${service_fake_bin}"
+
+cat > "${service_fake_bin}/systemctl" <<'FAKE_SYSTEMCTL'
+#!/usr/bin/env bash
+set -euo pipefail
+printf '%s\n' "$*" >> "${SYSTEMCTL_LOG:?}"
+FAKE_SYSTEMCTL
+chmod +x "${service_fake_bin}/systemctl"
+
+if ! HOME="${service_home}" \
+    PATH="${service_fake_bin}:/usr/bin:/bin" \
+    SYSTEMCTL_LOG="${service_systemctl_log}" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        print_header() { :; }
+        print_success() { :; }
+        print_warning() { :; }
+        setup_user_services
+        service_link="${HOME}/.config/systemd/user/polkit-gnome-authentication-agent.service"
+        [[ -L "${service_link}" ]]
+        [[ "$(readlink -- "${service_link}")" == "${DOTFILES_DIR}/config/systemd/user/polkit-gnome-authentication-agent.service" ]]
+    ' bash "${INSTALLER}"; then
+    fail "setup_user_services must link the supervised polkit unit"
+fi
+
+[[ "$(< "${service_systemctl_log}")" == '--user daemon-reload' ]] \
+    || fail "setup_user_services must only reload the user systemd manager"
+
+grub_home="${test_tmp}/grub-home"
+grub_fake_bin="${test_tmp}/grub-fake-bin"
+grub_cfg_fixture="${test_tmp}/grub.cfg"
+grub_sudo_log="${test_tmp}/grub-sudo.log"
+mkdir -p "${grub_home}" "${grub_fake_bin}"
+printf "menuentry 'fixture' {}\n" > "${grub_cfg_fixture}"
+cat > "${grub_fake_bin}/grub-mkconfig" <<'FAKE_GRUB_MKCONFIG_COMMAND'
+#!/usr/bin/env bash
+exit 0
+FAKE_GRUB_MKCONFIG_COMMAND
+chmod +x "${grub_fake_bin}/grub-mkconfig"
+
+if ! HOME="${grub_home}" \
+    PATH="${grub_fake_bin}:/usr/bin:/bin" \
+    DOTFILES_GRUB_CFG_PATH="${grub_cfg_fixture}" \
+    GRUB_SUDO_LOG="${grub_sudo_log}" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        print_header() { :; }
+        print_success() { :; }
+        print_warning() { :; }
+        ask_confirmation() {
+            [[ "$1" == "Install Steins;Gate GRUB theme?" ]]
+        }
+        fetch_steinsgrub_archive() {
+            local destination="$1"
+            [[ "$2" == "${STEINSGRUB_ARCHIVE_URL}" ]]
+            [[ "$3" == "${STEINSGRUB_ARCHIVE_SHA256}" ]]
+            mkdir -p "${destination%/*}"
+            printf "archive fixture\n" > "${destination}"
+        }
+        prepare_steinsgrub_source() {
+            local archive="$1"
+            local output_dir="$2"
+            [[ -f "${archive}" ]]
+            [[ "$3" == "${DOTFILES_DIR}/lib/steinsgrub.sha256" ]]
+            [[ "$4" == "steinsgrub-theme-${STEINSGRUB_COMMIT}" ]]
+            mkdir -p "${output_dir}"
+            printf "theme fixture\n" > "${output_dir}/theme.txt"
+        }
+        sudo() {
+            [[ "$1" == "${DOTFILES_DIR}/scripts/install-steinsgrub-root.sh" ]]
+            [[ -f "$2/theme.txt" ]]
+            printf "%s\n" "$1" > "${GRUB_SUDO_LOG:?}"
+        }
+        setup_grub_theme
+    ' bash "${INSTALLER}"; then
+    fail "setup_grub_theme orchestration probe failed"
+fi
+
+grep -Fxq "${ROOT}/scripts/install-steinsgrub-root.sh" "${grub_sudo_log}" \
+    || fail "setup_grub_theme did not invoke the pinned root transaction"
+
+if HOME="${grub_home}" \
+    PATH="${grub_fake_bin}:/usr/bin:/bin" \
+    DOTFILES_GRUB_CFG_PATH="${grub_cfg_fixture}" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        print_header() { :; }
+        print_success() { :; }
+        print_warning() { :; }
+        print_error() { :; }
+        ask_confirmation() {
+            [[ "$1" == "Install Steins;Gate GRUB theme?" ]]
+        }
+        fetch_steinsgrub_archive() {
+            return 1
+        }
+        setup_grub_theme
+    ' bash "${INSTALLER}"; then
+    fail "setup_grub_theme must propagate a failure after explicit confirmation"
+fi
+
+grep -Fq 'review the transaction output for rollback or recovery details' "${INSTALLER}" \
+    || fail "setup_grub_theme failure guidance must not overstate rollback success"
+! grep -Fq 'the previous GRUB state was restored' "${INSTALLER}" \
+    || fail "setup_grub_theme must not claim an unverified rollback result"
+! grep -Fq 'retained backup' "${INSTALLER}" \
+    || fail "setup_grub_theme must not promise a backup before the transaction creates one"
+
+plymouth_sudo_log="${test_tmp}/plymouth-sudo.log"
+if ! PLYMOUTH_SUDO_LOG="${plymouth_sudo_log}" bash -c '
+    set -euo pipefail
+    source "$1"
+    print_header() { :; }
+    print_success() { :; }
+    print_warning() { :; }
+    command_exists() { return 0; }
+    ask_confirmation() {
+        [[ "$1" == "Install Divergence Meter Plymouth theme?" ]]
+    }
+    sudo() {
+        [[ "$1" == "${DOTFILES_DIR}/scripts/install-div-meter-plymouth-root.sh" ]]
+        [[ "$2" == "${DOTFILES_DIR}/config/plymouth/themes/div-meter" ]]
+        validate_div_meter_theme_tree "$2" "$2/SHA256SUMS"
+        printf "%s\n" "$1" > "${PLYMOUTH_SUDO_LOG:?}"
+    }
+    setup_plymouth
+' bash "${INSTALLER}"; then
+    fail "setup_plymouth orchestration probe failed"
+fi
+grep -Fxq "${ROOT}/scripts/install-div-meter-plymouth-root.sh" "${plymouth_sudo_log}" \
+    || fail "setup_plymouth did not invoke the vendored root transaction"
+
+if bash -c '
+    set -euo pipefail
+    source "$1"
+    print_header() { :; }
+    print_success() { :; }
+    print_warning() { :; }
+    print_error() { :; }
+    command_exists() { return 0; }
+    ask_confirmation() {
+        [[ "$1" == "Install Divergence Meter Plymouth theme?" ]]
+    }
+    sudo() {
+        return 1
+    }
+    setup_plymouth
+' bash "${INSTALLER}"; then
+    fail "setup_plymouth must propagate root transaction failure"
+fi
+
+plymouth_decline_log="${test_tmp}/plymouth-decline.log"
+if ! PLYMOUTH_DECLINE_LOG="${plymouth_decline_log}" bash -c '
+    set -euo pipefail
+    source "$1"
+    print_header() { :; }
+    print_success() { :; }
+    print_warning() { :; }
+    command_exists() { return 1; }
+    ask_confirmation() {
+        return 1
+    }
+    sudo() {
+        printf "called\n" > "${PLYMOUTH_DECLINE_LOG:?}"
+    }
+    setup_plymouth
+' bash "${INSTALLER}"; then
+    fail "declining setup_plymouth must not abort installation"
+fi
+[[ ! -e "${plymouth_decline_log}" ]] \
+    || fail "declining setup_plymouth still invoked the root transaction"
+
+grep -Fq 'Divergence Meter Plymouth installation failed; review the transaction output for rollback or recovery details' \
+    "${INSTALLER}" \
+    || fail "setup_plymouth failure guidance must remain accurate"
 
 grep -Fq 'with_retry "nvm install" bash -o pipefail -c "curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/${nvm_ver}/install.sh | PROFILE=/dev/null bash"' \
     "${INSTALLER}" \

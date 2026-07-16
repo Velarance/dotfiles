@@ -88,11 +88,25 @@ done
 
 autostart="${ROOT}/config/hypr/conf/autostart.conf"
 hyprland="${ROOT}/config/hypr/hyprland.conf"
+polkit_service="${ROOT}/config/systemd/user/polkit-gnome-authentication-agent.service"
 
 ! grep -Eq '^[[:space:]]*exec-once[[:space:]]*=[[:space:]]*swaync([[:space:]]|$)' "${autostart}" \
     || fail "swaync must not be started as an unmanaged process"
-grep -Fq 'systemctl --user start swaync.service' "${autostart}" \
-    || fail "swaync must be started by the user systemd manager"
+grep -Fxq 'exec-once = dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP && systemctl --user start swaync.service polkit-gnome-authentication-agent.service' "${autostart}" \
+    || fail "session services must start together only after the D-Bus environment import"
+! grep -Eq '^[[:space:]]*exec-once.*polkit-gnome-authentication-agent-1' "${autostart}" \
+    || fail "the polkit agent must not be started as an unmanaged Hyprland process"
+
+[[ -f "${polkit_service}" ]] \
+    || fail "the supervised polkit user service is missing"
+grep -Fxq 'ExecStart=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1' "${polkit_service}" \
+    || fail "the polkit user service has the wrong executable"
+grep -Fxq 'ConditionFileIsExecutable=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1' "${polkit_service}" \
+    || fail "the polkit user service must use a valid executable condition"
+grep -Fxq 'Restart=on-failure' "${polkit_service}" \
+    || fail "the polkit user service must restart after failures"
+grep -Fxq 'RestartSec=1' "${polkit_service}" \
+    || fail "the polkit user service restart delay is not bounded"
 
 dbus_updates=$(grep -hF 'dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP' \
     "${autostart}" "${hyprland}" | wc -l)

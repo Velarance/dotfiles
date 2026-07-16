@@ -1,0 +1,9 @@
+[Unit]
+Description=GNOME PolicyKit authentication agent
+ConditionFileIsExecutable=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1
+Restart=on-failure
+RestartSec=1

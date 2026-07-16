@@ -1,1 +1,3 @@
 config/sddm/themes/amadeus/** -whitespace
+config/plymouth/themes/div-meter/** -whitespace
+lib/steinsgrub-theme.patch -whitespace

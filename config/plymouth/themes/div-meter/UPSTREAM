@@ -1,0 +1,8 @@
+Name: divergence-meter-plymouth
+Source: https://github.com/jericjan/divergence-meter-plymouth
+Commit: 7fe92523659811b0339ea60af4a92aff5fd4a256
+Tree: ea39e39bc7810538e22d99bd5cc3049baab4a445
+Archive-SHA256: 0c5f48106e679ef95383b5f1e1e600437cd8079fd027225255146f19a995bdba
+Retrieved: 2026-07-16
+License: GPL-3.0
+Local-Change: div-meter.script fixes end_imags to end_imgs for the terminal frame

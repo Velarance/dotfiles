@@ -1,0 +1,10 @@
+Name: steinsgrub-theme
+Source: https://github.com/RansomDark/steinsgrub-theme
+Commit: 147f7deb28aef2e2cd50ab67535945f4dd32f381
+Tree: 65a384a285daf34e9e69a4a3e1a2f9dc531468fa
+Archive-SHA256: 2abd0545a4fcdbfdf70ca36e060e5dcd0b4b18332ebc4d8caf90bf6552b0d688
+License: not provided by upstream
+
+The theme assets are downloaded directly from the pinned upstream commit and
+are not redistributed by this dotfiles repository. Local installation fixes
+the misspelled width property and normalizes the bundled Orbitron PF2 name.

@@ -43,6 +43,23 @@ if [[ ! -f "${DOTFILES_DIR}/lib/packages.conf" ]]; then
 fi
 source "${DOTFILES_DIR}/lib/packages.conf"
 
+for steinsgrub_library in steinsgrub.conf steinsgrub.sh; do
+    if [[ ! -f "${DOTFILES_DIR}/lib/${steinsgrub_library}" ]]; then
+        echo -e "${RED}✗${NC} lib/${steinsgrub_library} not found in ${DOTFILES_DIR}"
+        exit 1
+    fi
+    # shellcheck disable=SC1090
+    source "${DOTFILES_DIR}/lib/${steinsgrub_library}"
+done
+unset steinsgrub_library
+
+if [[ ! -f "${DOTFILES_DIR}/lib/div-meter-plymouth.sh" ]]; then
+    echo -e "${RED}✗${NC} lib/div-meter-plymouth.sh not found in ${DOTFILES_DIR}"
+    exit 1
+fi
+# shellcheck disable=SC1090
+source "${DOTFILES_DIR}/lib/div-meter-plymouth.sh"
+
 #==============================================================================
 # Helper Functions
 #==============================================================================
@@ -898,6 +915,47 @@ create_symlinks() {
     print_success "All symlinks created"
 }
 
+setup_user_services() {
+    print_header "Setting up user services"
+
+    local unit_name="polkit-gnome-authentication-agent.service"
+    local unit_source="${DOTFILES_DIR}/config/systemd/user/${unit_name}"
+    local unit_dir="${CONFIG_DIR}/systemd/user"
+    local unit_target="${unit_dir}/${unit_name}"
+
+    if [[ ! -f "${unit_source}" ]]; then
+        print_warning "Skipped ${unit_name} (source not found)"
+        return 0
+    fi
+
+    mkdir -p -- "${unit_dir}"
+    if [[ -e "${unit_target}" && ! -L "${unit_target}" ]]; then
+        local unit_backup_dir="${BACKUP_DIR}/systemd/user"
+        mkdir -p -- "${unit_backup_dir}"
+        if ! mv -- "${unit_target}" "${unit_backup_dir}/${unit_name}"; then
+            print_warning "Failed to back up existing ${unit_name}"
+            return 0
+        fi
+        print_success "Backed up existing ${unit_name}"
+    fi
+
+    if ! ln -sfn -- "${unit_source}" "${unit_target}"; then
+        print_warning "Failed to link ${unit_name}"
+        return 0
+    fi
+    print_success "Linked ${unit_name}"
+
+    if command_exists systemctl; then
+        if systemctl --user daemon-reload; then
+            print_success "Reloaded the user systemd manager"
+        else
+            print_warning "Could not reload the user systemd manager; it will load the unit next session"
+        fi
+    else
+        print_warning "systemctl not found; the user service will load next session"
+    fi
+}
+
 setup_local_config() {
     print_header "Setting up device-specific configuration"
 
@@ -1362,6 +1420,100 @@ setup_sddm() {
         fi
     fi
 }
+
+setup_grub_theme() (
+    print_header "Setting up Steins;GRUB theme"
+
+    local grub_cfg_path="${DOTFILES_GRUB_CFG_PATH:-/boot/grub/grub.cfg}"
+    local cache_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/dotfiles/steinsgrub"
+    local archive_path="${cache_dir}/${STEINSGRUB_COMMIT}.tar.gz"
+    local temporary_dir source_dir
+
+    if [[ ! -f "${grub_cfg_path}" || -L "${grub_cfg_path}" ]]; then
+        print_warning "GRUB configuration not found; skipping Steins;GRUB"
+        return 0
+    fi
+    if ! command_exists grub-mkconfig; then
+        print_warning "grub-mkconfig not found; skipping Steins;GRUB"
+        return 0
+    fi
+    for required_command in curl tar sha256sum; do
+        if ! command_exists "${required_command}"; then
+            print_warning "${required_command} not found; skipping Steins;GRUB"
+            return 0
+        fi
+    done
+    if ! ask_confirmation "Install Steins;Gate GRUB theme?"; then
+        print_warning "Steins;GRUB theme skipped"
+        return 0
+    fi
+
+    if ! fetch_steinsgrub_archive \
+        "${archive_path}" \
+        "${STEINSGRUB_ARCHIVE_URL}" \
+        "${STEINSGRUB_ARCHIVE_SHA256}"; then
+        print_error "Steins;GRUB download or checksum verification failed"
+        return 1
+    fi
+
+    temporary_dir="$(mktemp -d "${TMPDIR:-/tmp}/dotfiles-steinsgrub.XXXXXX")" || {
+        print_error "Could not create Steins;GRUB staging directory"
+        return 1
+    }
+    trap 'rm -rf -- "${temporary_dir}"' EXIT
+    source_dir="${temporary_dir}/theme"
+    if ! prepare_steinsgrub_source \
+        "${archive_path}" \
+        "${source_dir}" \
+        "${DOTFILES_DIR}/lib/steinsgrub.sha256" \
+        "steinsgrub-theme-${STEINSGRUB_COMMIT}"; then
+        print_error "Steins;GRUB archive structure validation failed"
+        return 1
+    fi
+
+    if sudo "${DOTFILES_DIR}/scripts/install-steinsgrub-root.sh" "${source_dir}"; then
+        print_success "Steins;GRUB theme installed"
+    else
+        print_error "Steins;GRUB installation failed; review the transaction output for rollback or recovery details"
+        return 1
+    fi
+)
+
+setup_plymouth() (
+    print_header "Setting up Divergence Meter Plymouth theme"
+
+    local theme_source="${DOTFILES_DIR}/config/plymouth/themes/div-meter"
+    local manifest="${theme_source}/SHA256SUMS"
+    local root_installer="${DOTFILES_DIR}/scripts/install-div-meter-plymouth-root.sh"
+    local required_command
+
+    if ! ask_confirmation "Install Divergence Meter Plymouth theme?"; then
+        print_warning "Divergence Meter Plymouth theme skipped"
+        return 0
+    fi
+
+    for required_command in mkinitcpio lsinitcpio plymouth-set-default-theme; do
+        if ! command_exists "${required_command}"; then
+            print_error "${required_command} not found; cannot configure Plymouth safely"
+            return 1
+        fi
+    done
+    if [[ ! -x "${root_installer}" || -L "${root_installer}" ]]; then
+        print_error "Divergence Meter Plymouth root transaction is unavailable"
+        return 1
+    fi
+    if ! validate_div_meter_theme_tree "${theme_source}" "${manifest}"; then
+        print_error "Vendored Divergence Meter Plymouth theme failed validation"
+        return 1
+    fi
+
+    if sudo "${root_installer}" "${theme_source}"; then
+        print_success "Divergence Meter Plymouth theme installed"
+    else
+        print_error "Divergence Meter Plymouth installation failed; review the transaction output for rollback or recovery details"
+        return 1
+    fi
+)
 
 install_shell_plugins() {
     print_header "Checking shell plugins"
@@ -2524,6 +2676,8 @@ main() {
     echo "  • Backup existing configs to ${BACKUP_DIR}"
     echo "  • Create symlinks from ${DOTFILES_DIR} to ~/.config/"
     echo "  • Set up SDDM (optional)"
+    echo "  • Set up the pinned Steins;GRUB theme when GRUB is detected (optional)"
+    echo "  • Set up the vendored Divergence Meter Plymouth theme (optional)"
     echo "  • Install shell plugins (optional)"
     echo "  • Install optional components: pyenv, Go, Docker, nvm + Node.js, Flatpak, SDKMAN + Java (optional)"
     echo "  • Create a btrfs swapfile, auto-sized (optional)"
@@ -2545,12 +2699,15 @@ main() {
     check_dependencies
     backup_existing_configs
     create_symlinks
+    setup_user_services
     setup_local_config
     setup_wallpaper_dir
     install_shell_plugins
     install_optional_packages
     setup_nautilus_integration
     setup_sddm
+    setup_grub_theme
+    setup_plymouth
     install_optional_components
     setup_icons
     setup_qt_theme

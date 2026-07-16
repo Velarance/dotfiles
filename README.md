@@ -35,6 +35,8 @@ Personal configuration files for Arch Linux with Hyprland.
 - **Notifications**: [SwayNC](https://github.com/ErikReider/SwayNotificationCenter)
 - **Colors**: [Matugen](https://github.com/InioX/matugen) - Material You color generation from wallpaper
 - **Display Manager**: SDDM with vendored Amadeus theme
+- **Boot Menu**: GRUB with the pinned Steins;GRUB theme
+- **Boot Splash**: Plymouth with the vendored Divergence Meter theme
 - **Wallpaper Engine**: [awww](https://github.com/Horus645/swww) - Animated wallpaper daemon
 
 ## Structure
@@ -61,7 +63,8 @@ dotfiles/
 │   ├── yay/             # AUR helper config
 │   ├── gtk-3.0/         # GTK3 theme
 │   ├── gtk-4.0/         # GTK4 theme
-│   └── sddm/           # Login screen
+│   ├── sddm/            # Login screen
+│   └── plymouth/        # Vendored early-boot theme
 ├── home/                # Home directory files
 │   ├── .zshrc           # ZSH config
 │   └── shell/           # Modular shell configs
@@ -102,6 +105,19 @@ The selected connector is stored in `/etc/sddm/primary-output`; SDDM marks it pr
 Wallpaper changes do not modify the login theme.
 Existing `/etc/sddm.conf` settings are preserved while the Amadeus override is managed at its highest priority.
 
+### Boot Themes
+
+The optional GRUB setup installs the commit-pinned Steins;GRUB theme through a staged transaction.
+The optional Plymouth setup uses the repository copy of `jericjan/divergence-meter-plymouth`; it performs no theme download during installation.
+
+The Plymouth transaction validates the complete vendored SHA-256 manifest, preserves an existing valid hook order, adds a missing hook and GRUB `splash` argument only on supported CachyOS/Arch configurations, and rebuilds every conventional mkinitcpio preset.
+Before mutation it stores the previous theme, configs, GRUB state when changed, and every affected initramfs under `/var/backups/dotfiles-div-meter-plymouth-*`.
+A failed rebuild or validation restores that state automatically, while a successful installation retains the backup for manual recovery.
+The stock CachyOS Plymouth themes remain installed as fallbacks.
+
+The animation is a centered 800x600 asset and runs before Hyprland, so Hyprland's primary-monitor setting cannot control its early-DRM output.
+The installer does not reboot; the new splash is visible on the next user-initiated reboot.
+
 ### Device-Specific Configuration
 
 Support for device-specific settings via `local.conf`:
@@ -118,7 +134,7 @@ Full package lists are defined in `lib/packages.conf`. Key packages:
 **Core:**
 
 ```bash
-hyprland nwg-displays waybar kitty rofi neovim matugen-bin awww swaync wlogout
+hyprland nwg-displays waybar kitty rofi neovim matugen-bin awww swaync plymouth wlogout
 grim slurp wl-clipboard jq cliphist pipewire wireplumber
 ttf-firacode-nerd noto-fonts-cjk noto-fonts-emoji
 nautilus file-roller sushi gvfs-mtp gvfs-smb ffmpegthumbnailer
@@ -158,6 +174,8 @@ The script will:
 - Create symlinks
 - Create device-specific configuration file
 - Setup SDDM (optional)
+- Install the pinned Steins;GRUB theme (optional)
+- Install the vendored Divergence Meter Plymouth theme and rebuild initramfs (optional)
 - Install shell plugins (optional)
 - Install optional packages (optional)
 - Install optional components: Miniconda, Rust, Go, Docker, Node.js (optional)
