@@ -303,6 +303,93 @@ VALIDATOR_VALID
 validate_steinsgrub_kernel_arguments "${validator_defaults}" "${validator_valid}" \
     || fail "Steins;GRUB validator rejected quoted defaults with ordered normal and recovery arguments"
 
+validator_inline_submenu_commands="${test_tmp}/grub-validator-inline-submenu-commands.cfg"
+cat > "${validator_inline_submenu_commands}" <<'VALIDATOR_INLINE_SUBMENU_COMMANDS'
+submenu 'unexpected command' { configfile /boot/grub/other.cfg }
+menuentry 'normal' {
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_INLINE_SUBMENU_COMMANDS
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_inline_submenu_commands}"; then
+    fail "Steins;GRUB validator accepted executable commands in an inline submenu"
+fi
+
+validator_grub_btrfs_wrappers="${test_tmp}/grub-validator-grub-btrfs-wrappers.cfg"
+cat > "${validator_grub_btrfs_wrappers}" <<'VALIDATOR_GRUB_BTRFS_WRAPPERS'
+menuentry '| Date | Snapshot | Type | Description |' { echo }
+submenu '| Snapshot | Kernel | Options |' { echo }
+submenu 'CachyOS Linux snapshots' {
+    menuentry 'snapshot boot' {
+        linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+    }
+}
+VALIDATOR_GRUB_BTRFS_WRAPPERS
+validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_grub_btrfs_wrappers}" \
+    || fail "Steins;GRUB validator rejected grub-btrfs display-only wrappers"
+
+validator_inline_linux="${test_tmp}/grub-validator-inline-linux.cfg"
+cat > "${validator_inline_linux}" <<'VALIDATOR_INLINE_LINUX'
+menuentry 'inline kernel' { linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3 }
+menuentry 'normal' {
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_INLINE_LINUX
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_inline_linux}"; then
+    fail "Steins;GRUB validator accepted an inline kernel command"
+fi
+
+validator_inline_commands="${test_tmp}/grub-validator-inline-commands.cfg"
+cat > "${validator_inline_commands}" <<'VALIDATOR_INLINE_COMMANDS'
+menuentry 'unexpected command' { echo; reboot }
+menuentry 'normal' {
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_INLINE_COMMANDS
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_inline_commands}"; then
+    fail "Steins;GRUB validator accepted executable commands in an inline wrapper"
+fi
+
+validator_multiline_menuentry_body="${test_tmp}/grub-validator-multiline-menuentry-body.cfg"
+cat > "${validator_multiline_menuentry_body}" <<'VALIDATOR_MULTILINE_MENUENTRY_BODY'
+menuentry 'hidden body' { linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+menuentry 'normal' {
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_MULTILINE_MENUENTRY_BODY
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_multiline_menuentry_body}"; then
+    fail "Steins;GRUB validator accepted a command after a multiline menuentry brace"
+fi
+
+validator_multiline_submenu_body="${test_tmp}/grub-validator-multiline-submenu-body.cfg"
+cat > "${validator_multiline_submenu_body}" <<'VALIDATOR_MULTILINE_SUBMENU_BODY'
+submenu 'hidden body' { configfile /boot/grub/other.cfg
+}
+menuentry 'normal' {
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_MULTILINE_SUBMENU_BODY
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_multiline_submenu_body}"; then
+    fail "Steins;GRUB validator accepted a command after a multiline submenu brace"
+fi
+
+validator_extra_open_brace="${test_tmp}/grub-validator-extra-open-brace.cfg"
+cat > "${validator_extra_open_brace}" <<'VALIDATOR_EXTRA_OPEN_BRACE'
+menuentry 'malformed braces' {{
+    linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3
+}
+VALIDATOR_EXTRA_OPEN_BRACE
+if validate_steinsgrub_kernel_arguments \
+    "${validator_defaults}" "${validator_extra_open_brace}"; then
+    fail "Steins;GRUB validator accepted a menuentry with an extra opening brace"
+fi
+
 validator_outside_entry="${test_tmp}/grub-validator-outside-entry.cfg"
 printf '%s\n' \
     'linux /boot/vmlinuz root=fixture audit=0 lockdown=integrity quiet splash loglevel=3' \

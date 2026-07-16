@@ -262,6 +262,9 @@ validate_steinsgrub_kernel_arguments() {
     local generated_config="${2:-}"
     local loaded_values default_command_line global_command_line config_line
     local menuentry_header
+    local inline_display_entry_regex='^[[:space:]]*(menuentry|submenu)[[:space:]]+[^{}]+[[:space:]]*\{[[:space:]]*echo[[:space:]]*\}[[:space:]]*$'
+    local menuentry_header_regex='^[[:space:]]*menuentry[[:space:]]+[^{}]+[[:space:]]*\{[[:space:]]*$'
+    local submenu_header_regex='^[[:space:]]*submenu[[:space:]]+[^{}]+[[:space:]]*\{[[:space:]]*$'
     local line_count=0
     local menuentry_context=0
     local menuentry_is_recovery=0
@@ -297,10 +300,20 @@ validate_steinsgrub_kernel_arguments() {
     combined_arguments=("${global_arguments[@]}" "${default_arguments[@]}")
 
     while IFS= read -r config_line || [[ -n "${config_line}" ]]; do
+        if [[ "${menuentry_context}" -eq 0 \
+            && "${config_line}" =~ ${inline_display_entry_regex} ]]; then
+            continue
+        fi
+
+        if [[ "${config_line}" =~ ^[[:space:]]*submenu[[:space:]] ]]; then
+            [[ "${menuentry_context}" -eq 0 \
+                && "${config_line}" =~ ${submenu_header_regex} ]] || return 1
+            continue
+        fi
+
         if [[ "${config_line}" =~ ^[[:space:]]*menuentry[[:space:]] ]]; then
             [[ "${menuentry_context}" -eq 0 \
-                && "${config_line}" == *'{'* \
-                && "${config_line}" != *'}'* ]] || return 1
+                && "${config_line}" =~ ${menuentry_header_regex} ]] || return 1
             menuentry_context=1
             menuentry_header="${config_line,,}"
             menuentry_is_recovery=0
