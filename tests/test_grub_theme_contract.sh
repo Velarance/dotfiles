@@ -521,8 +521,9 @@ reset_transaction_root() {
         "${transaction_root}/etc/default/grub-btrfs" \
         "${transaction_root}/boot/grub" \
         "${transaction_root}/usr/share/grub/themes/steinsgrub" \
-        "${transaction_root}/var/backups" \
-        "${transaction_root}/var/lock"
+        "${transaction_root}/var" \
+        "${transaction_root}/run/lock"
+    ln -s -- ../run/lock "${transaction_root}/var/lock"
     cat > "${transaction_root}/etc/default/grub" <<'DEFAULT_GRUB'
 GRUB_DEFAULT=0
 GRUB_CMDLINE_LINUX_DEFAULT='nowatchdog systemd.tpm2_wait=false'
@@ -577,6 +578,15 @@ grep -Fq 'systemd.tpm2_wait=false' "${transaction_root}/boot/grub/grub.cfg" \
     || fail "Steins;GRUB root transaction lost existing kernel arguments"
 grep -Fq 'nowatchdog systemd.tpm2_wait=false' "${transaction_root}/boot/grub/grub.cfg" \
     || fail "Steins;GRUB root transaction changed the kernel argument set"
+[[ -d "${transaction_root}/var/backups" && ! -L "${transaction_root}/var/backups" ]] \
+    || fail "Steins;GRUB transaction did not safely create /var/backups"
+[[ "$(stat -c '%a' "${transaction_root}/var/backups")" == '700' ]] \
+    || fail "Steins;GRUB transaction did not protect the created backup directory"
+[[ "$(stat -c '%u:%g' "${transaction_root}/var/backups")" == "$(id -u):$(id -g)" ]] \
+    || fail "Steins;GRUB fake-root backup directory has the wrong owner"
+[[ -f "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" \
+    && ! -L "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" ]] \
+    || fail "Steins;GRUB transaction did not use the canonical /run/lock directory"
 
 backup_dir="$(find "${transaction_root}/var/backups" -mindepth 1 -maxdepth 1 -type d -print -quit)"
 [[ -n "${backup_dir}" ]] || fail "Steins;GRUB transaction did not retain a recovery backup"
@@ -586,6 +596,8 @@ grep -Fq 'Windows Boot Manager' "${backup_dir}/grub.cfg" \
     || fail "Steins;GRUB backup does not contain the previous main config"
 grep -Fxq 'old theme sentinel' "${backup_dir}/theme/old.txt" \
     || fail "Steins;GRUB backup does not contain the previous theme"
+run_transaction >/dev/null \
+    || fail "Steins;GRUB transaction rejected an existing backup directory"
 
 capture_transaction_state() {
     default_before="$(sha256sum "${transaction_root}/etc/default/grub")"
@@ -620,6 +632,69 @@ assert_transaction_restored() {
             || fail "Steins;GRUB rollback retained ${temporary_target#"${transaction_root}"}"
     done
 }
+
+reset_transaction_root
+rm -f -- "${transaction_root}/var/lock"
+run_transaction >/dev/null \
+    || fail "Steins;GRUB transaction required a /var/lock alias"
+[[ ! -e "${transaction_root}/var/lock" \
+    && ! -L "${transaction_root}/var/lock" ]] \
+    || fail "Steins;GRUB transaction recreated the absent /var/lock alias"
+[[ -f "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" \
+    && ! -L "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" ]] \
+    || fail "Steins;GRUB transaction did not lock through /run/lock without a /var/lock alias"
+
+reset_transaction_root
+capture_transaction_state
+dangling_backup_target="${test_tmp}/missing-steinsgrub-backups"
+rm -rf -- "${dangling_backup_target}"
+ln -s -- "${dangling_backup_target}" "${transaction_root}/var/backups"
+if run_transaction >/dev/null 2>&1; then
+    fail "Steins;GRUB transaction accepted a dangling /var/backups symlink"
+fi
+[[ -L "${transaction_root}/var/backups" ]] \
+    || fail "Steins;GRUB transaction replaced the dangling /var/backups symlink"
+[[ ! -e "${dangling_backup_target}" && ! -L "${dangling_backup_target}" ]] \
+    || fail "Steins;GRUB transaction created the dangling backup target"
+[[ ! -e "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" \
+    && ! -L "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" ]] \
+    || fail "Steins;GRUB backup preflight failure created a transaction lock"
+assert_transaction_restored
+
+reset_transaction_root
+capture_transaction_state
+external_backup_target="${test_tmp}/external-steinsgrub-backups"
+rm -rf -- "${external_backup_target}"
+mkdir -p -- "${external_backup_target}"
+external_backup_sentinel="${external_backup_target}/sentinel"
+printf 'do not mutate external backups\n' > "${external_backup_sentinel}"
+external_backup_before="$(sha256sum "${external_backup_sentinel}")"
+ln -s -- "${external_backup_target}" "${transaction_root}/var/backups"
+if run_transaction >/dev/null 2>&1; then
+    fail "Steins;GRUB transaction accepted an external /var/backups symlink"
+fi
+[[ -L "${transaction_root}/var/backups" ]] \
+    || fail "Steins;GRUB transaction replaced the external /var/backups symlink"
+[[ "$(sha256sum "${external_backup_sentinel}")" == "${external_backup_before}" ]] \
+    || fail "Steins;GRUB transaction mutated the external backup sentinel"
+[[ ! -e "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" \
+    && ! -L "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" ]] \
+    || fail "Steins;GRUB external-backup rejection created a transaction lock"
+assert_transaction_restored
+
+reset_transaction_root
+capture_transaction_state
+printf 'backup path sentinel\n' > "${transaction_root}/var/backups"
+backup_file_before="$(sha256sum "${transaction_root}/var/backups")"
+if run_transaction >/dev/null 2>&1; then
+    fail "Steins;GRUB transaction accepted a regular-file /var/backups"
+fi
+[[ "$(sha256sum "${transaction_root}/var/backups")" == "${backup_file_before}" ]] \
+    || fail "Steins;GRUB transaction mutated the regular-file /var/backups"
+[[ ! -e "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" \
+    && ! -L "${transaction_root}/run/lock/dotfiles-steinsgrub.lock" ]] \
+    || fail "Steins;GRUB regular-file rejection created a transaction lock"
+assert_transaction_restored
 
 for failpoint in after-theme term-after-theme after-default after-generation after-sidecar before-main; do
     reset_transaction_root
@@ -661,7 +736,7 @@ capture_transaction_state
 lock_sentinel="${test_tmp}/steinsgrub-lock-sentinel"
 printf 'do not truncate\n' > "${lock_sentinel}"
 ln -s -- "${lock_sentinel}" \
-    "${transaction_root}/var/lock/dotfiles-steinsgrub.lock"
+    "${transaction_root}/run/lock/dotfiles-steinsgrub.lock"
 if run_transaction >/dev/null 2>&1; then
     fail "Steins;GRUB transaction accepted a symlinked lock file"
 fi

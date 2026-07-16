@@ -102,7 +102,7 @@ theme_parent="${root_prefix}/usr/share/grub/themes"
 theme_target="${theme_parent}/steinsgrub"
 theme_config_path="/usr/share/grub/themes/steinsgrub/theme.txt"
 backup_parent="${root_prefix}/var/backups"
-lock_path="${root_prefix}/var/lock/dotfiles-steinsgrub.lock"
+lock_path="${root_prefix}/run/lock/dotfiles-steinsgrub.lock"
 
 for required_tool in \
     awk bash chmod chown cmp cp date find flock grep grub-mkconfig \
@@ -143,6 +143,16 @@ fi
 if [[ -e "${theme_target}" || -L "${theme_target}" ]]; then
     [[ -d "${theme_target}" && ! -L "${theme_target}" ]] \
         || die "${theme_target} must be a real directory"
+fi
+backup_parent_parent="${backup_parent%/*}"
+[[ -d "${backup_parent_parent}" && ! -L "${backup_parent_parent}" ]] \
+    || die "${backup_parent_parent} must be a real directory"
+require_contained_path "${backup_parent_parent}"
+if [[ -e "${backup_parent}" || -L "${backup_parent}" ]]; then
+    [[ -d "${backup_parent}" && ! -L "${backup_parent}" ]] \
+        || die "${backup_parent} must be a real directory"
+else
+    install_owned_directory 0700 "${backup_parent}"
 fi
 [[ -d "${backup_parent}" && ! -L "${backup_parent}" ]] \
     || die "${backup_parent} must be a real directory"

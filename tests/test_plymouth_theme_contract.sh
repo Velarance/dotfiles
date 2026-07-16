@@ -638,8 +638,9 @@ make_fake_root() {
         "${fake_root}/etc/plymouth" \
         "${fake_root}/usr/lib/plymouth" \
         "${fake_root}/usr/share/plymouth/themes/div-meter" \
-        "${fake_root}/var/backups" \
-        "${fake_root}/var/lock"
+        "${fake_root}/run/lock" \
+        "${fake_root}/var"
+    ln -s -- ../run/lock "${fake_root}/var/lock"
     : > "${fake_root}/usr/lib/plymouth/script.so"
     printf 'old theme\n' > "${fake_root}/usr/share/plymouth/themes/div-meter/old.marker"
     cat > "${fake_root}/etc/plymouth/plymouthd.conf" <<'PLYMOUTH_CONF'
@@ -742,6 +743,22 @@ assert_restored_fake_root() {
     fi
 }
 
+assert_preflight_rejected_without_mutation() {
+    local fake_root="$1"
+    local snapshot="$2"
+    local description="$3"
+
+    if run_fake_transaction "${fake_root}" >/dev/null 2>&1; then
+        fail "root transaction accepted ${description}"
+    fi
+    assert_restored_fake_root "${fake_root}" "${snapshot}"
+    [[ ! -e "${fake_root}/mkinitcpio.calls" ]] \
+        || fail "${description} preflight invoked mkinitcpio"
+    [[ ! -e "${fake_root}/run/lock/dotfiles-div-meter-plymouth.lock" \
+        && ! -L "${fake_root}/run/lock/dotfiles-div-meter-plymouth.lock" ]] \
+        || fail "${description} preflight created a transaction lock"
+}
+
 success_root="${test_tmp}/root-success"
 make_fake_root "${success_root}"
 mkinit_before="$(sha256sum "${success_root}/etc/mkinitcpio.conf" | awk '{print $1}')"
@@ -749,6 +766,17 @@ grub_default_before="$(sha256sum "${success_root}/etc/default/grub" | awk '{prin
 grub_cfg_before="$(sha256sum "${success_root}/boot/grub/grub.cfg" | awk '{print $1}')"
 success_output="$(run_fake_transaction "${success_root}")" \
     || fail "valid fake-root Plymouth transaction failed"
+[[ -d "${success_root}/var/backups" && ! -L "${success_root}/var/backups" ]] \
+    || fail "fresh fake-root transaction did not create a real backup directory"
+[[ "$(stat -c '%a' "${success_root}/var/backups")" == 700 ]] \
+    || fail "fresh fake-root backup directory must use mode 0700"
+[[ "$(stat -c '%u' "${success_root}/var/backups")" == "${current_uid}" ]] \
+    || fail "fresh fake-root backup directory must remain owned by the current user"
+[[ -f "${success_root}/run/lock/dotfiles-div-meter-plymouth.lock" \
+    && ! -L "${success_root}/run/lock/dotfiles-div-meter-plymouth.lock" ]] \
+    || fail "fake-root transaction did not use the real /run/lock directory"
+[[ -L "${success_root}/var/lock" ]] \
+    || fail "fake-root transaction replaced the standard /var/lock symlink"
 validate_div_meter_theme_tree \
     "${success_root}/usr/share/plymouth/themes/div-meter" \
     "${success_root}/usr/share/plymouth/themes/div-meter/SHA256SUMS" \
@@ -779,6 +807,17 @@ grep -Fq 'already configured' <<< "${rerun_output}" \
     || fail "idempotent rerun did not report the stable state"
 [[ "$(wc -l < "${success_root}/mkinitcpio.calls")" -eq 1 ]] \
     || fail "idempotent rerun rebuilt unchanged initramfs images"
+
+run_lock_only_root="${test_tmp}/root-run-lock-only"
+make_fake_root "${run_lock_only_root}"
+rm -- "${run_lock_only_root}/var/lock"
+run_fake_transaction "${run_lock_only_root}" >/dev/null \
+    || fail "transaction depended on a /var/lock entry instead of real /run/lock"
+[[ -f "${run_lock_only_root}/run/lock/dotfiles-div-meter-plymouth.lock" \
+    && ! -L "${run_lock_only_root}/run/lock/dotfiles-div-meter-plymouth.lock" ]] \
+    || fail "transaction without /var/lock did not create the /run/lock file"
+[[ ! -e "${run_lock_only_root}/var/lock" && ! -L "${run_lock_only_root}/var/lock" ]] \
+    || fail "transaction recreated or followed a /var/lock entry"
 
 fresh_root="${test_tmp}/root-fresh"
 make_fake_root "${fresh_root}"
@@ -881,6 +920,53 @@ for failure_case in after-theme fresh-after-theme term-after-theme after-config 
     assert_restored_fake_root "${failure_root}" "${failure_snapshot}"
 done
 
+backup_symlink_root="${test_tmp}/root-backup-symlink"
+backup_symlink_target="${test_tmp}/external-backups"
+backup_symlink_sentinel="${backup_symlink_target}/sentinel"
+make_fake_root "${backup_symlink_root}"
+mkdir "${backup_symlink_target}"
+printf 'do not mutate\n' > "${backup_symlink_sentinel}"
+ln -s -- "${backup_symlink_target}" \
+    "${backup_symlink_root}/var/backups"
+backup_symlink_snapshot="${test_tmp}/snapshot-backup-symlink"
+snapshot_fake_root "${backup_symlink_root}" \
+    "${backup_symlink_snapshot}"
+assert_preflight_rejected_without_mutation \
+    "${backup_symlink_root}" "${backup_symlink_snapshot}" "a backup symlink"
+[[ -L "${backup_symlink_root}/var/backups" ]] \
+    || fail "backup symlink preflight replaced the unsafe path"
+grep -Fxq 'do not mutate' "${backup_symlink_sentinel}" \
+    || fail "backup symlink preflight mutated the external sentinel"
+if [[ -n "$(find "${backup_symlink_target}" -mindepth 1 -maxdepth 1 \
+    ! -path "${backup_symlink_sentinel}" -print -quit)" ]]; then
+    fail "backup symlink preflight wrote transaction data outside the fake root"
+fi
+
+backup_dangling_root="${test_tmp}/root-backup-dangling"
+backup_dangling_target="${test_tmp}/missing-external-backups"
+make_fake_root "${backup_dangling_root}"
+ln -s -- "${backup_dangling_target}" "${backup_dangling_root}/var/backups"
+backup_dangling_snapshot="${test_tmp}/snapshot-backup-dangling"
+snapshot_fake_root "${backup_dangling_root}" \
+    "${backup_dangling_snapshot}"
+assert_preflight_rejected_without_mutation \
+    "${backup_dangling_root}" "${backup_dangling_snapshot}" "a dangling backup symlink"
+[[ -L "${backup_dangling_root}/var/backups" \
+    && ! -e "${backup_dangling_root}/var/backups" ]] \
+    || fail "dangling backup symlink preflight replaced the unsafe path"
+[[ ! -e "${backup_dangling_target}" && ! -L "${backup_dangling_target}" ]] \
+    || fail "dangling backup symlink preflight created its external target"
+
+backup_file_root="${test_tmp}/root-backup-file"
+make_fake_root "${backup_file_root}"
+printf 'do not replace\n' > "${backup_file_root}/var/backups"
+backup_file_snapshot="${test_tmp}/snapshot-backup-file"
+snapshot_fake_root "${backup_file_root}" "${backup_file_snapshot}"
+assert_preflight_rejected_without_mutation \
+    "${backup_file_root}" "${backup_file_snapshot}" "a backup regular file"
+grep -Fxq 'do not replace' "${backup_file_root}/var/backups" \
+    || fail "backup-file preflight replaced or mutated the sentinel file"
+
 unsafe_root="${test_tmp}/root-unsafe"
 make_fake_root "${unsafe_root}"
 mv -- "${unsafe_root}/etc/plymouth/plymouthd.conf" \
@@ -897,7 +983,7 @@ make_fake_root "${lock_symlink_root}"
 lock_sentinel="${test_tmp}/lock-sentinel"
 printf 'do not truncate\n' > "${lock_sentinel}"
 ln -s -- "${lock_sentinel}" \
-    "${lock_symlink_root}/var/lock/dotfiles-div-meter-plymouth.lock"
+    "${lock_symlink_root}/run/lock/dotfiles-div-meter-plymouth.lock"
 if run_fake_transaction "${lock_symlink_root}" >/dev/null 2>&1; then
     fail "root transaction accepted a symlinked lock file"
 fi

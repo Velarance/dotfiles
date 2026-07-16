@@ -185,7 +185,7 @@ grub_cfg="${grub_dir}/grub.cfg"
 grub_btrfs_cfg="${grub_dir}/grub-btrfs.cfg"
 grub_btrfs_config="${root_prefix}/etc/default/grub-btrfs/config"
 backup_parent="${root_prefix}/var/backups"
-lock_path="${root_prefix}/var/lock/dotfiles-div-meter-plymouth.lock"
+lock_path="${root_prefix}/run/lock/dotfiles-div-meter-plymouth.lock"
 
 for required_tool in \
     awk bash chmod chown cmp cp date diff find flock grep install lsinitcpio \
@@ -234,10 +234,21 @@ if [[ -e "${grub_btrfs_config}" || -L "${grub_btrfs_config}" ]]; then
     fi
 fi
 
+backup_parent_parent="${backup_parent%/*}"
+[[ -d "${backup_parent_parent}" && ! -L "${backup_parent_parent}" ]] \
+    || die "${backup_parent_parent} must be a real directory"
+require_contained_path "${backup_parent_parent}"
+if [[ -e "${backup_parent}" || -L "${backup_parent}" ]]; then
+    [[ -d "${backup_parent}" && ! -L "${backup_parent}" ]] \
+        || die "${backup_parent} must be a real directory"
+else
+    install_owned_directory 0700 "${backup_parent}" \
+        || die "could not create ${backup_parent}"
+fi
 [[ -d "${backup_parent}" && ! -L "${backup_parent}" ]] \
     || die "${backup_parent} must be a real directory"
 lock_parent="${lock_path%/*}"
-[[ -d "${lock_parent}" ]] \
+[[ -d "${lock_parent}" && ! -L "${lock_parent}" ]] \
     || die "${lock_parent} must be an existing directory"
 
 for contained_path in \
