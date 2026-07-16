@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# Preserve the distribution Xsetup first, then optionally mark the connector
+# selected during installation as SDDM's primary output.
+set -euo pipefail
+
+readonly BASE_XSETUP="/usr/share/sddm/scripts/Xsetup"
+readonly PRIMARY_OUTPUT_FILE="/etc/sddm/primary-output"
+readonly XRANDR="/usr/bin/xrandr"
+
+if [[ -x "${BASE_XSETUP}" ]]; then
+    "${BASE_XSETUP}"
+fi
+
+[[ -r "${PRIMARY_OUTPUT_FILE}" ]] || exit 0
+
+primary_output=''
+IFS= read -r primary_output < "${PRIMARY_OUTPUT_FILE}" || exit 0
+
+# Hyprland/Xorg output names are simple connector identifiers.  Reject any
+# stale or malformed value before it can become an xrandr argument.
+case "${primary_output}" in
+    ''|*[![:alnum:]._-]*) exit 0 ;;
+esac
+
+if "${XRANDR}" --query | awk -v output="${primary_output}" \
+    '$1 == output && $2 == "connected" { found = 1 } END { exit !found }'; then
+    # A hot-unplug race here must not prevent SDDM from showing its greeter.
+    "${XRANDR}" --output "${primary_output}" --primary || true
+fi

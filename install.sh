@@ -14,6 +14,22 @@ readonly BACKUP_DIR="${HOME}/.dotfiles_backup_$(date +%Y%m%d_%H%M%S)"
 readonly CONFIG_DIR="${HOME}/.config"
 readonly LOG_FILE="${DOTFILES_DIR}/install.log"
 
+readonly -a AMADEUS_THEME_FILES=(
+    "COPYING"
+    "IPA_Font_License_Agreement_v1.0.txt"
+    "Main.qml"
+    "amadeus-background.png"
+    "amadeus-secondary.png"
+    "components/SpComboBox.qml"
+    "components/SpTextBox.qml"
+    "fonts/TakaoMincho.ttf"
+    "kurisu.gif"
+    "metadata.desktop"
+    "theme.conf"
+    "vk.qml"
+)
+readonly AMADEUS_CHECKSUM_MANIFEST_SHA256="c7fd03497037e11af13f2ef7e2043d6a40814443a0a21bcf844ff3f45dd903f7"
+
 # Colors for output
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -129,6 +145,519 @@ command_exists() {
 
 package_installed() {
     pacman -Qi "$1" &> /dev/null
+}
+
+validate_amadeus_theme_tree() {
+    local theme_dir="$1"
+    local theme_file
+    local first_symlink
+    local checksum_manifest="${theme_dir}/SHA256SUMS"
+    local digest_line manifest_digest
+    local expected_files actual_files
+
+    if [[ ! -d "$theme_dir" || -L "$theme_dir" ]]; then
+        print_error "Amadeus theme root must be a real directory"
+        return 1
+    fi
+    if ! first_symlink="$(find "$theme_dir" -type l -print -quit)"; then
+        print_error "Failed to inspect the Amadeus theme tree"
+        return 1
+    fi
+    if [[ -n "$first_symlink" ]]; then
+        print_error "Amadeus theme symlinks are not allowed: $first_symlink"
+        return 1
+    fi
+
+    for theme_file in "${AMADEUS_THEME_FILES[@]}"; do
+        if [[ ! -f "${theme_dir}/${theme_file}" || ! -r "${theme_dir}/${theme_file}" || -L "${theme_dir}/${theme_file}" ]]; then
+            print_error "Amadeus theme file is missing or unreadable: ${theme_file}"
+            return 1
+        fi
+    done
+
+    if [[ ! -f "$checksum_manifest" || ! -r "$checksum_manifest" || -L "$checksum_manifest" ]] \
+        || ! digest_line="$(sha256sum -- "$checksum_manifest")"; then
+        print_error "Amadeus checksum manifest is missing or unreadable"
+        return 1
+    fi
+    manifest_digest="${digest_line%% *}"
+    if [[ "$manifest_digest" != "$AMADEUS_CHECKSUM_MANIFEST_SHA256" ]]; then
+        print_error "Amadeus checksum manifest does not match the pinned reviewed variant"
+        return 1
+    fi
+
+    if ! (cd "$theme_dir" && sha256sum --check --strict --quiet SHA256SUMS); then
+        print_error "Amadeus theme asset checksum validation failed"
+        return 1
+    fi
+    expected_files="$(printf '%s\n' "${AMADEUS_THEME_FILES[@]}" SHA256SUMS UPSTREAM | LC_ALL=C sort)"
+    if ! actual_files="$(find "$theme_dir" -type f -printf '%P\n' | LC_ALL=C sort)"; then
+        print_error "Failed to enumerate the Amadeus theme tree"
+        return 1
+    fi
+    if [[ "$actual_files" != "$expected_files" ]]; then
+        print_error "Amadeus theme tree contains missing or unreviewed files"
+        return 1
+    fi
+
+
+
+    if ! grep -Fxq "Theme-Id=amadeus" "${theme_dir}/metadata.desktop" \
+        || ! grep -Fxq "QtVersion=6" "${theme_dir}/metadata.desktop" \
+        || ! grep -Fxq "MirrorScreens=false" "${theme_dir}/theme.conf"; then
+        print_error "Amadeus theme metadata is invalid"
+        return 1
+    fi
+}
+
+validate_sddm_critical_settings() {
+    local config_file="$1"
+
+    awk '
+        function trim(value) {
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            return value
+        }
+        /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
+            section = $0
+            sub(/^[[:space:]]*\[/, "", section)
+            sub(/\][[:space:]]*$/, "", section)
+            next
+        }
+        /^[[:space:]]*(#|$)/ { next }
+        {
+            line = $0
+            separator = index(line, "=")
+            if (!separator) next
+            key = trim(substr(line, 1, separator - 1))
+            value = trim(substr(line, separator + 1))
+
+            if (section == "General" && key == "DisplayServer") {
+                display_server_count++
+                display_server_valid = (value == "x11")
+            } else if (section == "Theme" && key == "ThemeDir") {
+                theme_dir_count++
+                theme_dir_valid = (value == "/usr/share/sddm/themes")
+            } else if (section == "Theme" && key == "Current") {
+                current_count++
+                current_valid = (value == "amadeus")
+            } else if (section == "X11" && key == "DisplayCommand") {
+                display_command_count++
+                display_command_valid = (value == "/usr/local/lib/sddm/Xsetup-dotfiles")
+            }
+        }
+        END {
+            if (display_server_count != 1 || !display_server_valid ||
+                theme_dir_count != 1 || !theme_dir_valid ||
+                current_count != 1 || !current_valid ||
+                display_command_count != 1 || !display_command_valid) {
+                exit 65
+            }
+        }
+    ' "$config_file"
+}
+
+validate_sddm_managed_override_source() {
+    local override_file="$1"
+
+    validate_sddm_critical_settings "$override_file" || return 1
+
+    awk '
+        BEGIN {
+            in_block = 0
+            begin_count = 0
+            end_count = 0
+            saw_nonblank = 0
+            block_closed = 0
+            invalid = 0
+        }
+        /^[[:space:]]*$/ { next }
+        /^# BEGIN DOTFILES SDDM OVERRIDE$/ {
+            if (saw_nonblank || in_block || begin_count > 0) invalid = 1
+            begin_count++
+            in_block = 1
+            saw_nonblank = 1
+            next
+        }
+        /^# END DOTFILES SDDM OVERRIDE$/ {
+            if (!in_block || end_count > 0) invalid = 1
+            end_count++
+            in_block = 0
+            block_closed = 1
+            saw_nonblank = 1
+            next
+        }
+        {
+            if (!in_block || block_closed) invalid = 1
+            saw_nonblank = 1
+        }
+        END {
+            if (invalid || in_block || begin_count != 1 || end_count != 1) exit 65
+        }
+    ' "$override_file"
+}
+
+format_sddm_monitor_options() {
+    jq -r '
+        if type != "array" then
+            error("Hyprland monitor response is not an array")
+        else
+            (
+                [
+                    .[]
+                    | select((.name | type) == "string")
+                    | select(.name | test("^[A-Za-z0-9._-]+$"))
+                ]
+                | unique_by(.name)[]
+                | . as $monitor
+                | (
+                    ($monitor.description // "Unknown display")
+                    | tostring
+                    | gsub("[\\t\\r\\n]+"; " ")
+                    | gsub(" +"; " ")
+                    | gsub("^ +| +$"; "")
+                ) as $description
+                | (
+                    if $description == "" then "Unknown display"
+                    else $description
+                    end
+                ) as $clean_description
+                | (
+                    if (($monitor.width | type) == "number"
+                        and ($monitor.height | type) == "number"
+                        and $monitor.width > 0
+                        and $monitor.height > 0)
+                    then (($monitor.width | floor | tostring) + "x" + ($monitor.height | floor | tostring))
+                    else "mode unknown"
+                    end
+                ) as $resolution
+                | (
+                    if (($monitor.disabled // false) == true)
+                    then "disabled in Hyprland"
+                    else "active in Hyprland"
+                    end
+                ) as $state
+                | [$monitor.name, $clean_description, $resolution, $state]
+                | @tsv
+            )
+        end
+    '
+}
+
+validate_root_file_backup() {
+    local backup_path="$1"
+    local checksum_path="${backup_path}.sha256"
+    local expected_digest actual_digest_line actual_digest
+
+    if ! sudo test -f "$backup_path" || sudo test -L "$backup_path" \
+        || ! sudo test -f "$checksum_path" || sudo test -L "$checksum_path"; then
+        return 1
+    fi
+    if ! expected_digest="$(sudo sed -n '1p' -- "$checksum_path")" \
+        || [[ ! "$expected_digest" =~ ^[[:xdigit:]]{64}$ ]]; then
+        return 1
+    fi
+    if ! actual_digest_line="$(sudo sha256sum -- "$backup_path")"; then
+        return 1
+    fi
+    actual_digest="${actual_digest_line%% *}"
+    [[ "$actual_digest" == "$expected_digest" ]]
+}
+
+create_root_file_backup_once() {
+    local backup_path="$2"
+    local lock_path="${backup_path}.lock"
+    local lock_fd rc unlock_rc=0
+
+    if ! sudo touch -- "$lock_path" \
+        || sudo test -L "$lock_path" \
+        || ! sudo test -f "$lock_path" \
+        || ! sudo chown root:root "$lock_path" \
+        || ! sudo chmod 0644 "$lock_path"; then
+        print_error "Failed to prepare backup lock: ${lock_path}"
+        return 1
+    fi
+    if ! exec {lock_fd}< "$lock_path"; then
+        print_error "Failed to open backup lock: ${lock_path}"
+        return 1
+    fi
+    if ! flock -x "$lock_fd"; then
+        print_error "Failed to acquire backup lock: ${lock_path}"
+        exec {lock_fd}<&-
+        return 1
+    fi
+
+    if create_root_file_backup_once_locked "$@"; then
+        rc=0
+    else
+        rc=$?
+    fi
+
+    flock -u "$lock_fd" || unlock_rc=$?
+    exec {lock_fd}<&-
+    if (( unlock_rc != 0 )); then
+        print_error "Failed to release backup lock: ${lock_path}"
+        return 1
+    fi
+    return "$rc"
+}
+
+create_root_file_backup_once_locked() {
+    local source_path="$1"
+    local backup_path="$2"
+    local staged_backup="${backup_path}.dotfiles-new"
+    local checksum_path="${backup_path}.sha256"
+    local staged_checksum="${checksum_path}.dotfiles-new"
+    local digest_line staged_digest
+
+    if sudo test -e "$backup_path" || sudo test -L "$backup_path"; then
+        if ! validate_root_file_backup "$backup_path"; then
+            print_error "Existing backup is missing a valid checksum: ${backup_path}"
+            return 1
+        fi
+        if ! sudo rm -f -- "$staged_backup" "$staged_checksum"; then
+            print_error "Failed to clear stale backup staging paths"
+            return 1
+        fi
+        return 0
+    fi
+
+    if ! sudo test -e "$source_path" && ! sudo test -L "$source_path"; then
+        if ! sudo rm -f -- "$staged_backup" "$staged_checksum"; then
+            print_error "Failed to clear stale backup staging paths"
+            return 1
+        fi
+        if sudo test -e "$checksum_path" || sudo test -L "$checksum_path"; then
+            if ! sudo test -f "$checksum_path" || sudo test -L "$checksum_path" \
+                || ! sudo rm -f -- "$checksum_path"; then
+                print_error "Failed to clear an orphaned backup checksum"
+                return 1
+            fi
+        fi
+        return 0
+    fi
+    if sudo test -L "$source_path" || ! sudo test -f "$source_path"; then
+        print_error "Cannot back up a symlink or non-file path: ${source_path}"
+        return 1
+    fi
+
+    if sudo test -e "$checksum_path" || sudo test -L "$checksum_path"; then
+        if ! sudo test -f "$checksum_path" || sudo test -L "$checksum_path" \
+            || ! sudo rm -f -- "$checksum_path"; then
+            print_error "Orphaned backup checksum path is unsafe: ${checksum_path}"
+            return 1
+        fi
+    fi
+
+    if ! sudo rm -f -- "$staged_backup" "$staged_checksum"; then
+        print_error "Failed to clear backup staging paths"
+        return 1
+    fi
+
+    if ! sudo cp -a -- "$source_path" "$staged_backup" \
+        || ! sudo test -f "$staged_backup" \
+        || sudo test -L "$staged_backup" \
+        || ! sudo cmp -s -- "$source_path" "$staged_backup"; then
+        print_error "Failed to stage a verified backup for ${source_path}"
+        sudo rm -f -- "$staged_backup" "$staged_checksum" || true
+        return 1
+    fi
+
+    if ! digest_line="$(sudo sha256sum -- "$staged_backup")"; then
+        print_error "Failed to checksum the staged backup"
+        sudo rm -f -- "$staged_backup" "$staged_checksum" || true
+        return 1
+    fi
+    staged_digest="${digest_line%% *}"
+    if [[ ! "$staged_digest" =~ ^[[:xdigit:]]{64}$ ]] \
+        || ! printf '%s\n' "$staged_digest" | sudo install -o root -g root -m 0644 /dev/stdin "$staged_checksum"; then
+        print_error "Failed to stage the backup checksum"
+        sudo rm -f -- "$staged_backup" "$staged_checksum" || true
+        return 1
+    fi
+
+    if ! sudo mv --update=none-fail -T "$staged_checksum" "$checksum_path"; then
+        print_error "Failed to atomically publish backup checksum: ${checksum_path}"
+        sudo rm -f -- "$staged_backup" "$staged_checksum" || true
+        return 1
+    fi
+
+    if ! sudo mv --update=none-fail -T "$staged_backup" "$backup_path"; then
+        if validate_root_file_backup "$backup_path"; then
+            sudo rm -f -- "$staged_backup" "$staged_checksum" || true
+            return 0
+        fi
+        print_error "Failed to atomically publish backup: ${backup_path}"
+        sudo rm -f -- "$staged_backup" "$staged_checksum" "$checksum_path" || true
+        return 1
+    fi
+
+    if ! validate_root_file_backup "$backup_path"; then
+        print_error "Published backup validation failed: ${backup_path}"
+        sudo rm -f -- "$backup_path" "$checksum_path" || true
+        return 1
+    fi
+}
+
+install_sddm_final_override() {
+    local override_source="$1"
+    local temporary_dir temporary_config original_config override_snapshot
+    local staged_config="/etc/.sddm.conf.dotfiles-new"
+    local backup_config="/etc/sddm.conf.dotfiles-backup"
+    local recovery_config="/etc/sddm.conf.dotfiles-recovery.$$"
+    local had_config=0
+
+    if [[ ! -f "$override_source" || ! -r "$override_source" || -L "$override_source" ]]; then
+        print_error "Final SDDM override source is unsafe"
+        return 1
+    fi
+    if ! temporary_dir="$(mktemp -d)"; then
+        print_error "Failed to create temporary SDDM workspace"
+        return 1
+    fi
+    temporary_config="${temporary_dir}/sddm.conf"
+    original_config="${temporary_dir}/original.conf"
+    override_snapshot="${temporary_dir}/override.conf"
+
+    if ! cp -- "$override_source" "$override_snapshot" \
+        || ! validate_sddm_managed_override_source "$override_snapshot"; then
+        print_error "Failed to snapshot a valid final SDDM override"
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if sudo test -L /etc/sddm.conf \
+        || { sudo test -e /etc/sddm.conf && ! sudo test -f /etc/sddm.conf; }; then
+        print_error "Existing /etc/sddm.conf must be a regular non-symlink file"
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if sudo test -f /etc/sddm.conf; then
+        had_config=1
+        if ! sudo cat -- /etc/sddm.conf > "$original_config"; then
+            print_error "Failed to snapshot the existing SDDM config"
+            rm -rf -- "$temporary_dir"
+            return 1
+        fi
+        if ! awk '
+            BEGIN { in_override = 0; block_closed = 0; block_count = 0; invalid = 0 }
+            /^# BEGIN DOTFILES SDDM OVERRIDE$/ {
+                if (in_override || block_count > 0) invalid = 1
+                in_override = 1
+                block_count++
+                next
+            }
+            /^# END DOTFILES SDDM OVERRIDE$/ {
+                if (!in_override) invalid = 1
+                in_override = 0
+                block_closed = 1
+                next
+            }
+            block_closed {
+                if ($0 !~ /^[[:space:]]*$/) invalid = 1
+                next
+            }
+            !in_override { preserved[++line_count] = $0 }
+            END {
+                if (in_override || invalid) exit 65
+                while (line_count > 0 && preserved[line_count] ~ /^[[:space:]]*$/) line_count--
+                for (line_number = 1; line_number <= line_count; line_number++) print preserved[line_number]
+            }
+        ' "$original_config" > "$temporary_config"; then
+            print_error "Failed to preserve the existing SDDM config"
+            rm -rf -- "$temporary_dir"
+            return 1
+        fi
+    else
+        : > "$temporary_config"
+    fi
+
+    if ! printf '\n' >> "$temporary_config" || ! sed -n 'p' "$override_snapshot" >> "$temporary_config"; then
+        print_error "Failed to prepare the final SDDM override"
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if ! sudo rm -f -- "$staged_config" \
+        || ! sudo install -o root -g root -m 0644 "$temporary_config" "$staged_config"; then
+        print_error "Failed to stage the final SDDM override"
+        sudo rm -f -- "$staged_config" || true
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if ! sudo cmp -s -- "$temporary_config" "$staged_config"; then
+        print_error "Staged SDDM override validation failed"
+        sudo rm -f -- "$staged_config" || true
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if (( had_config )); then
+        if ! sudo cmp -s -- "$original_config" /etc/sddm.conf; then
+            print_error "Existing SDDM config changed during preparation"
+            sudo rm -f -- "$staged_config" || true
+            rm -rf -- "$temporary_dir"
+            return 1
+        fi
+    elif sudo test -e /etc/sddm.conf || sudo test -L /etc/sddm.conf; then
+        print_error "SDDM config appeared during preparation"
+        sudo rm -f -- "$staged_config" || true
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if ! create_root_file_backup_once /etc/sddm.conf "$backup_config"; then
+        print_error "Failed to back up the existing SDDM config"
+        sudo rm -f -- "$staged_config" || true
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    if (( had_config )); then
+        if ! sudo mv --exchange --no-copy -T "$staged_config" /etc/sddm.conf; then
+            print_error "Failed to atomically exchange the SDDM config"
+            sudo rm -f -- "$staged_config" || true
+            rm -rf -- "$temporary_dir"
+            return 1
+        fi
+
+        if ! sudo test -f "$staged_config" || sudo test -L "$staged_config" \
+            || ! sudo cmp -s -- "$original_config" "$staged_config"; then
+            print_error "SDDM config changed during atomic activation"
+            if sudo cmp -s -- "$temporary_config" /etc/sddm.conf; then
+                if ! sudo mv --exchange --no-copy -T "$staged_config" /etc/sddm.conf; then
+                    print_error "Failed to restore the concurrently changed SDDM config"
+                    rm -rf -- "$temporary_dir"
+                    return 1
+                fi
+                if sudo test -f "$staged_config" && ! sudo test -L "$staged_config" \
+                    && sudo cmp -s -- "$temporary_config" "$staged_config"; then
+                    sudo rm -f -- "$staged_config" || true
+                elif sudo mv --update=none-fail --no-copy -T "$staged_config" "$recovery_config"; then
+                    print_warning "A second concurrent SDDM config was preserved at ${recovery_config}"
+                else
+                    print_error "Concurrent SDDM config remains at ${staged_config}"
+                fi
+            elif sudo mv --update=none-fail --no-copy -T "$staged_config" "$recovery_config"; then
+                print_warning "Concurrent SDDM config was preserved at ${recovery_config}"
+            else
+                print_error "Concurrent SDDM config remains at ${staged_config}"
+            fi
+            rm -rf -- "$temporary_dir"
+            return 1
+        fi
+        sudo rm -f -- "$staged_config" || print_warning "Old SDDM config remains at ${staged_config}"
+    elif ! sudo mv --update=none-fail --no-copy -T "$staged_config" /etc/sddm.conf; then
+        print_error "Failed to atomically create the SDDM config"
+        sudo rm -f -- "$staged_config" || true
+        rm -rf -- "$temporary_dir"
+        return 1
+    fi
+
+    rm -rf -- "$temporary_dir"
 }
 
 #==============================================================================
@@ -482,6 +1011,122 @@ setup_wallpaper_dir() {
     fi
 }
 
+smoke_test_sddm_theme() {
+    local theme_dir="$1"
+    local smoke_log smoke_status
+
+    if ! command_exists sddm-greeter-qt6 || ! command_exists timeout; then
+        print_warning "Cannot run the Qt6 SDDM greeter smoke test"
+        return 1
+    fi
+    if ! smoke_log="$(mktemp)"; then
+        print_warning "Cannot create the SDDM greeter smoke log"
+        return 1
+    fi
+
+    if QT_QPA_PLATFORM=offscreen QT_QUICK_BACKEND=software \
+        timeout --signal=TERM 8s sddm-greeter-qt6 --test-mode --theme "$theme_dir" \
+        >"$smoke_log" 2>&1; then
+        smoke_status=0
+    else
+        smoke_status=$?
+    fi
+
+    if [[ "$smoke_status" -ne 0 && "$smoke_status" -ne 124 ]] \
+        || grep -Eiq 'module ".+" is not installed|Type .+ unavailable|failed to load component|QQmlApplicationEngine failed|Error loading QML' "$smoke_log"; then
+        print_warning "Amadeus Qt6 greeter smoke test failed"
+        sed -n '1,20p' "$smoke_log" >&2
+        rm -f -- "$smoke_log"
+        return 1
+    fi
+
+    rm -f -- "$smoke_log"
+    print_success "Amadeus Qt6 greeter smoke test passed"
+}
+
+activate_amadeus_theme_tree() {
+    local theme_stage="$1"
+    local theme_target="$2"
+    local theme_backup="$3"
+    local previous_int_trap previous_term_trap
+    local signal_status=0
+    local activation_status=0
+    local preserve_failed=0
+
+    if sudo test -e "$theme_backup" || sudo test -L "$theme_backup"; then
+        if ! sudo test -d "$theme_backup" || sudo test -L "$theme_backup"; then
+            print_error "Existing Amadeus theme backup path is unsafe"
+            sudo rm -rf -- "$theme_stage" || true
+            return 1
+        fi
+    fi
+
+    if ! sudo test -e "$theme_target" && ! sudo test -L "$theme_target"; then
+        if sudo mv --update=none-fail --no-copy -T "$theme_stage" "$theme_target"; then
+            return 0
+        fi
+        print_error "Failed to activate the staged Amadeus theme"
+        sudo rm -rf -- "$theme_stage" || true
+        return 1
+    fi
+    if ! sudo test -d "$theme_target" || sudo test -L "$theme_target"; then
+        print_error "Existing Amadeus theme target is not a real directory"
+        sudo rm -rf -- "$theme_stage" || true
+        return 1
+    fi
+
+    previous_int_trap="$(trap -p INT)"
+    previous_term_trap="$(trap -p TERM)"
+    trap 'signal_status=130' INT
+    trap 'signal_status=143' TERM
+
+    if ! sudo mv --exchange --no-copy -T "$theme_stage" "$theme_target"; then
+        print_error "Failed to atomically exchange the Amadeus theme"
+        sudo rm -rf -- "$theme_stage" || true
+        activation_status=1
+    elif ! sudo test -d "$theme_stage" || sudo test -L "$theme_stage"; then
+        print_error "Displaced Amadeus theme is not a real directory"
+        preserve_failed=1
+    elif sudo test -e "$theme_backup" || sudo test -L "$theme_backup"; then
+        if ! sudo test -d "$theme_backup" || sudo test -L "$theme_backup" \
+            || ! sudo mv --exchange --no-copy -T "$theme_stage" "$theme_backup"; then
+            preserve_failed=1
+        else
+            sudo rm -rf -- "$theme_stage" \
+                || print_warning "Older Amadeus backup remains at ${theme_stage}"
+        fi
+    elif ! sudo mv --update=none-fail --no-copy -T "$theme_stage" "$theme_backup"; then
+        preserve_failed=1
+    fi
+
+    if (( preserve_failed )); then
+        print_error "Failed to preserve the displaced Amadeus theme"
+        if ! sudo mv --exchange --no-copy -T "$theme_stage" "$theme_target"; then
+            print_error "Rollback failed; both Amadeus trees were left in place"
+        else
+            sudo rm -rf -- "$theme_stage" || true
+        fi
+        activation_status=1
+    fi
+
+    if [[ -n "$previous_int_trap" ]]; then
+        eval "$previous_int_trap"
+    else
+        trap - INT
+    fi
+    if [[ -n "$previous_term_trap" ]]; then
+        eval "$previous_term_trap"
+    else
+        trap - TERM
+    fi
+
+    if (( signal_status != 0 )); then
+        print_warning "Signal deferred until Amadeus theme activation reached a safe state"
+        return "$signal_status"
+    fi
+    return "$activation_status"
+}
+
 setup_sddm() {
     print_header "Setting up SDDM"
 
@@ -490,29 +1135,226 @@ setup_sddm() {
         return 0
     fi
 
-    if ask_confirmation "Configure SDDM with Silent theme?"; then
+    if ask_confirmation "Configure SDDM with Amadeus theme?"; then
+        local -a monitor_options=()
+        local choice primary_output PS3
+        local monitors_json monitor_listing
+
+        if ! command_exists hyprctl || ! command_exists jq; then
+            print_warning "Cannot enumerate monitors without hyprctl and jq; SDDM left unchanged"
+            return 0
+        fi
+
+        if ! monitors_json="$(hyprctl -j monitors all 2>/dev/null)"; then
+            print_warning "Hyprland monitor query failed; SDDM left unchanged"
+            return 0
+        fi
+
+        if ! monitor_listing="$(format_sddm_monitor_options <<< "$monitors_json")"; then
+            print_warning "Hyprland returned an invalid monitor list; SDDM left unchanged"
+            return 0
+        fi
+
+        if [[ -n "$monitor_listing" ]]; then
+            mapfile -t monitor_options <<< "$monitor_listing"
+        fi
+
+        if [[ ${#monitor_options[@]} -eq 0 ]]; then
+            print_warning "No usable Hyprland monitors found; SDDM left unchanged"
+            return 0
+        fi
+
+        printf 'Choose the primary display for the SDDM login screen:\n' >&2
+        PS3='Primary SDDM display: '
+        select choice in "${monitor_options[@]}"; do
+            if [[ -n "${choice:-}" ]]; then
+                primary_output="${choice%%$'\t'*}"
+                break
+            fi
+            printf 'Choose one of the listed display numbers.\n' >&2
+        done
+
+        if [[ -z "${primary_output:-}" || "${primary_output}" == *[![:alnum:]._-]* ]]; then
+            print_warning "No valid primary display selected; SDDM left unchanged"
+            return 0
+        fi
+
+        local theme_source="${DOTFILES_DIR}/config/sddm/themes/amadeus"
+        local upstream_source="${theme_source}/UPSTREAM"
+        local hook_source="${DOTFILES_DIR}/config/sddm/scripts/Xsetup-dotfiles"
+        local drop_in_source="${DOTFILES_DIR}/config/sddm/sddm.conf"
+        local override_source="${DOTFILES_DIR}/config/sddm/dotfiles-override.conf"
+        local theme_target="/usr/share/sddm/themes/amadeus"
+        local theme_stage="/usr/share/sddm/themes/.amadeus-dotfiles-new"
+        local theme_backup="/usr/share/sddm/themes/.amadeus-dotfiles-backup"
+        local hook_target="/usr/local/lib/sddm/Xsetup-dotfiles"
+        local hook_stage="/usr/local/lib/sddm/.Xsetup-dotfiles-new"
+        local hook_backup="/usr/local/lib/sddm/.Xsetup-dotfiles-backup"
+        local primary_target="/etc/sddm/primary-output"
+        local primary_stage="/etc/sddm/.primary-output-dotfiles-new"
+        local sddm_backup_dir="/etc/sddm/dotfiles-backups"
+        local drop_in_target="/etc/sddm.conf.d/99-dotfiles.conf"
+        local drop_in_stage="/etc/sddm/.99-dotfiles.conf-new"
+        local drop_in_backup="${sddm_backup_dir}/99-dotfiles.conf"
+        local legacy_drop_in_target="/etc/sddm.conf.d/10-dotfiles.conf"
+        local legacy_drop_in_backup="${sddm_backup_dir}/10-dotfiles.conf"
+        local mv_help
+
+        if ! validate_amadeus_theme_tree "${theme_source}" \
+            || [[ ! -f "${upstream_source}" || ! -r "${upstream_source}" || -L "${upstream_source}" ]] \
+            || ! grep -Fxq "Source: https://github.com/jericjan/sddm-theme-amadeus" "${upstream_source}" \
+            || ! grep -Fxq "Commit: ad42165b22e4d7ce69dcef8fef6caa3e9d6f88f3" "${upstream_source}" \
+            || [[ ! -f "${hook_source}" || ! -r "${hook_source}" || ! -x "${hook_source}" || -L "${hook_source}" ]] \
+            || ! bash -n "${hook_source}" \
+            || [[ ! -f "${drop_in_source}" || ! -r "${drop_in_source}" || -L "${drop_in_source}" ]] \
+            || ! validate_sddm_critical_settings "${drop_in_source}" \
+            || [[ ! -f "${override_source}" || ! -r "${override_source}" || -L "${override_source}" ]] \
+            || ! validate_sddm_managed_override_source "${override_source}"; then
+            print_error "Vendored Amadeus or SDDM configuration sources are unsafe"
+            return 1
+        fi
+
+        if ! command_exists sha256sum \
+            || ! command_exists flock \
+            || ! mv_help="$(mv --help 2>&1)" \
+            || ! grep -Fq -- '--exchange' <<< "$mv_help" \
+            || ! grep -Fq -- '--no-copy' <<< "$mv_help" \
+            || ! grep -Fq -- 'none-fail' <<< "$mv_help"; then
+            print_error "GNU mv with atomic exchange support is required for SDDM setup"
+            return 1
+        fi
+
         # Check sudo access
         if ! sudo -v; then
             print_error "Failed to get sudo access"
             return 1
         fi
 
-        # Install SDDM config as drop-in so it overrides distro defaults
-        # (SDDM reads /etc/sddm.conf.d/*.conf AFTER /etc/sddm.conf, so the
-        # drop-in wins over things like kde_settings.conf that ship with
-        # sddm-kcm and force Current=breeze).
-        sudo install -Dm644 "${DOTFILES_DIR}/config/sddm/sddm.conf" \
-            /etc/sddm.conf.d/10-dotfiles.conf \
-            || print_warning "Failed to install SDDM config"
-        print_success "SDDM config installed to /etc/sddm.conf.d/10-dotfiles.conf"
+        local -a required_sddm_packages=(qt6-5compat qt6-virtualkeyboard xorg-xrandr)
+        local -a missing_sddm_packages=()
+        local package
 
-        # Check if Silent theme exists
-        if [[ -d "/usr/share/sddm/themes/silent" ]]; then
-            print_success "Silent theme found"
-        else
-            print_warning "Silent theme not found at /usr/share/sddm/themes/silent"
-            echo "Install with: yay -S sddm-silent-theme"
+        for package in "${required_sddm_packages[@]}"; do
+            if ! package_installed "${package}"; then
+                missing_sddm_packages+=("${package}")
+            fi
+        done
+
+        if [[ ${#missing_sddm_packages[@]} -gt 0 ]]; then
+            print_header "Installing SDDM theme dependencies"
+            if ! sudo pacman -S --needed --noconfirm "${missing_sddm_packages[@]}"; then
+                print_error "Failed to install required SDDM theme dependencies"
+                return 1
+            fi
         fi
+
+        if ! sudo rm -rf -- "$theme_stage" \
+            || ! sudo rm -f -- "$hook_stage" \
+            || ! sudo install -d -o root -g root -m 0755 "$theme_stage" \
+            || ! sudo cp -r "${theme_source}/." "$theme_stage/" \
+            || ! sudo chown -R root:root "$theme_stage" \
+            || ! sudo find "$theme_stage" -type d -exec chmod 0755 {} + \
+            || ! sudo find "$theme_stage" -type f -exec chmod 0644 {} + \
+            || ! sudo install -D -o root -g root -m 0755 "${hook_source}" "$hook_stage"; then
+            print_error "Failed to prepare the Amadeus theme or Xsetup staging area"
+            sudo rm -rf -- "$theme_stage" || true
+            sudo rm -f -- "$hook_stage" || true
+            return 1
+        fi
+
+        if ! validate_amadeus_theme_tree "$theme_stage" || ! bash -n "$hook_stage"; then
+            print_error "Staged Amadeus theme or Xsetup validation failed"
+            sudo rm -rf -- "$theme_stage" || true
+            sudo rm -f -- "$hook_stage" || true
+            return 1
+        fi
+
+        if ! create_root_file_backup_once "$hook_target" "$hook_backup"; then
+            print_error "Failed to back up the existing SDDM Xsetup hook"
+            sudo rm -rf -- "$theme_stage" || true
+            sudo rm -f -- "$hook_stage" || true
+            return 1
+        fi
+
+        if ! sudo mv -fT "$hook_stage" "$hook_target"; then
+            print_error "Failed to atomically activate the SDDM Xsetup hook"
+            sudo rm -rf -- "$theme_stage" || true
+            sudo rm -f -- "$hook_stage" || true
+            return 1
+        fi
+
+        if ! activate_amadeus_theme_tree "$theme_stage" "$theme_target" "$theme_backup"; then
+            return 1
+        fi
+        if ! smoke_test_sddm_theme "$theme_target"; then
+            print_error "Amadeus was installed but SDDM configuration was left unchanged"
+            return 1
+        fi
+
+
+        if ! sudo install -d -o root -g root -m 0755 /etc/sddm "$sddm_backup_dir"; then
+            print_error "Failed to create the SDDM state directory"
+            return 1
+        fi
+        if ! sudo rm -f -- "$primary_stage"; then
+            print_error "Failed to clear the SDDM primary-output staging path"
+            return 1
+        fi
+        if ! printf '%s\n' "${primary_output}" | sudo install -o root -g root -m 0644 /dev/stdin "$primary_stage" \
+            || ! sudo mv -fT "$primary_stage" "$primary_target"; then
+            print_error "Failed to save the SDDM primary display"
+            sudo rm -f -- "$primary_stage" || true
+            return 1
+        fi
+
+        # Install the drop-in only after the theme and its metadata have been
+        # staged successfully, so distro defaults cannot select a missing theme.
+        if ! sudo rm -f -- "$drop_in_stage" \
+            || ! sudo install -Dm644 "$drop_in_source" "$drop_in_stage"; then
+            print_error "Failed to stage the SDDM drop-in"
+            sudo rm -f -- "$drop_in_stage" || true
+            return 1
+        fi
+
+        if ! validate_sddm_critical_settings "$drop_in_stage"; then
+            print_error "Staged SDDM drop-in validation failed"
+            sudo rm -f -- "$drop_in_stage" || true
+            return 1
+        fi
+
+        if ! create_root_file_backup_once "$drop_in_target" "$drop_in_backup"; then
+            print_error "Failed to back up the existing SDDM drop-in"
+            sudo rm -f -- "$drop_in_stage" || true
+            return 1
+        fi
+
+        if ! sudo mv -fT "$drop_in_stage" "$drop_in_target"; then
+            print_error "Failed to atomically activate the SDDM drop-in"
+            sudo rm -f -- "$drop_in_stage" || true
+            return 1
+        fi
+
+        if ! install_sddm_final_override "${override_source}"; then
+            return 1
+        fi
+
+        if ! create_root_file_backup_once "$legacy_drop_in_target" "$legacy_drop_in_backup"; then
+            print_error "Failed to back up the legacy SDDM drop-in"
+            return 1
+        fi
+        if ! sudo rm -f -- "$legacy_drop_in_target"; then
+            print_error "Failed to remove the legacy SDDM drop-in"
+            return 1
+        fi
+
+        if package_installed sddm-silent-theme; then
+            if sudo pacman -R --noconfirm sddm-silent-theme; then
+                print_success "Removed the obsolete Silent SDDM theme package"
+            else
+                print_warning "Could not remove sddm-silent-theme; Amadeus is still active"
+            fi
+        fi
+        print_success "Amadeus theme configured for SDDM primary output ${primary_output}"
 
         # Enable SDDM
         if ask_confirmation "Enable SDDM service?"; then

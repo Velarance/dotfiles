@@ -34,7 +34,7 @@ Personal configuration files for Arch Linux with Hyprland.
 - **Launcher**: [Rofi](https://github.com/davatorium/rofi)
 - **Notifications**: [SwayNC](https://github.com/ErikReider/SwayNotificationCenter)
 - **Colors**: [Matugen](https://github.com/InioX/matugen) - Material You color generation from wallpaper
-- **Display Manager**: SDDM with Silent theme
+- **Display Manager**: SDDM with vendored Amadeus theme
 - **Wallpaper Engine**: [awww](https://github.com/Horus645/swww) - Animated wallpaper daemon
 
 ## Structure
@@ -83,7 +83,6 @@ Colors are automatically generated from wallpaper using Matugen and applied to:
 - Launcher (Rofi)
 - Status bar (Waybar)
 - Notification center (SwayNC)
-- Login screen (SDDM)
 - GTK applications
 
 ### Environment Variables
@@ -97,7 +96,11 @@ Consistent paths via dotfiles environment variables:
 
 ### SDDM Integration
 
-Login screen automatically uses current wallpaper and theme colors.
+The optional SDDM setup installs the vendored Qt6 Amadeus theme.
+It lists every output reported by `hyprctl monitors all`, labels active and disabled outputs, and requires selecting the primary login-screen output.
+The selected connector is stored in `/etc/sddm/primary-output`; SDDM marks it primary when Xorg reports that connector as connected.
+Wallpaper changes do not modify the login theme.
+Existing `/etc/sddm.conf` settings are preserved while the Amadeus override is managed at its highest priority.
 
 ### Device-Specific Configuration
 
@@ -193,9 +196,8 @@ Changing wallpaper automatically:
 
 1. Generates Material You color scheme via Matugen
 2. Reloads Waybar
-3. Sets SDDM background
-4. Updates terminal colors
-5. Applies colors to GTK applications
+3. Updates terminal colors
+4. Applies colors to GTK applications
 
 ### Key Bindings
 

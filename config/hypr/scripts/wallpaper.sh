@@ -234,36 +234,4 @@ else
     notify-send "Wallpaper" "Applied $newwall" -h int:value:100 -h string:x-canonical-private-synchronous:wallpaper
 fi
 
-# -----------------------------------------------------
-# Set SDDM wallpaper (async - runs in background)
-# -----------------------------------------------------
-if [ "$1" == "init" ] ;then
-    echo ":: Skipping SDDM wallpaper update on init"
-else
-    {
-        echo ":: Setting SDDM wallpaper (background)"
-
-        # Create SDDM config directory if it doesn't exist
-        if [ ! -d /etc/sddm.conf.d/ ]; then
-            sudo mkdir -p /etc/sddm.conf.d 2>/dev/null
-        fi
-
-        # Copy SDDM config
-        sudo cp "$HOME/dotfiles/config/sddm/sddm.conf" /etc/sddm.conf.d/ 2>/dev/null
-
-        # Get file extension
-        extension="${wallpaper##*.}"
-
-        # Copy current wallpaper to SDDM theme
-        sudo cp "$wallpaper" /usr/share/sddm/themes/silent/Backgrounds/current_wallpaper.$extension 2>/dev/null
-
-        # Update theme.conf
-        sudo cp "$HOME/dotfiles/config/sddm/theme.conf" /usr/share/sddm/themes/silent/ 2>/dev/null
-        sudo sed -i 's/CURRENTWALLPAPER/'"current_wallpaper.$extension"'/' /usr/share/sddm/themes/silent/theme.conf 2>/dev/null
-
-        echo ":: SDDM wallpaper updated"
-    } &
-    disown
-fi
-
 echo "DONE!"

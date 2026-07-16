@@ -1,0 +1,5 @@
+Source: https://github.com/jericjan/sddm-theme-amadeus
+Commit: ad42165b22e4d7ce69dcef8fef6caa3e9d6f88f3
+Tree: aabdd71362fc9066449f5b7d63e2bbd711ce5ac8
+Retrieved: 2026-07-16
+Local-Change: theme.conf sets MirrorScreens=false
