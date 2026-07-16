@@ -1349,7 +1349,7 @@ setup_sddm() {
         fi
 
 
-        if ! sudo install -d -o root -g root -m 0755 /etc/sddm "$sddm_backup_dir"; then
+        if ! sudo install -d -o root -g root -m 0755 /etc/sddm /etc/sddm.conf.d "$sddm_backup_dir"; then
             print_error "Failed to create the SDDM state directory"
             return 1
         fi

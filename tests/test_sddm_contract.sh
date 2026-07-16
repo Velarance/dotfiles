@@ -561,6 +561,8 @@ if require_readable "${INSTALLER}" 'installer'; then
             || fail 'setup_sddm must stage the selected primary output as root'
         grep -Fq 'sudo mv -fT "$primary_stage" "$primary_target"' <<< "${setup_body}" \
             || fail 'setup_sddm must atomically activate the selected primary output'
+        grep -Fq 'sudo install -d -o root -g root -m 0755 /etc/sddm /etc/sddm.conf.d "$sddm_backup_dir"' <<< "${setup_body}" \
+            || fail 'setup_sddm must create the fresh-system SDDM drop-in directory'
 
         grep -Fq 'install_sddm_final_override "${override_source}"' <<< "${setup_body}" \
             || fail 'setup_sddm must install the final highest-priority SDDM override'
@@ -578,6 +580,8 @@ if require_readable "${INSTALLER}" 'installer'; then
         source_preflight_line="$(line_number "${setup_body}" 'validate_amadeus_theme_tree')"
         package_install_line="$(line_number "${setup_body}" 'sudo[[:space:]]+pacman[[:space:]]+-S')"
         drop_in_line="$(line_number "${setup_body}" 'sudo[[:space:]]+install[^#]*drop_in_stage')"
+        drop_in_parent_line="$(line_number "${setup_body}" 'sudo[[:space:]]+install[[:space:]]+-d[^#]*/etc/sddm[.]conf[.]d')"
+        drop_in_activation_line="$(line_number "${setup_body}" 'sudo[[:space:]]+mv[[:space:]]+-fT[^#]*drop_in_target')"
         theme_activation_line="$(line_number "${setup_body}" 'activate_amadeus_theme_tree')"
         smoke_line="$(line_number "${setup_body}" 'smoke_test_sddm_theme')"
 
@@ -615,6 +619,12 @@ if require_readable "${INSTALLER}" 'installer'; then
             || fail 'setup_sddm must smoke-test Amadeus before writing SDDM state'
         grep -Fq 'sudo mv -fT "$drop_in_stage" "$drop_in_target"' <<< "${setup_body}" \
             || fail 'setup_sddm must atomically activate the staged SDDM drop-in'
+
+        if [[ -n "${smoke_line}" && -n "${drop_in_parent_line}" \
+            && -n "${drop_in_activation_line}" ]] \
+            && (( smoke_line >= drop_in_parent_line || drop_in_parent_line >= drop_in_activation_line )); then
+            fail 'setup_sddm must smoke-test, create the drop-in parent, then activate the drop-in'
+        fi
 
         if [[ -n "${theme_stage_line}" && -n "${hook_stage_line}" \
             && -n "${staged_validation_line}" && -n "${drop_in_line}" ]]; then

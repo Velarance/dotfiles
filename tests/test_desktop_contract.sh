@@ -24,6 +24,7 @@ source "${ROOT}/lib/packages.conf"
 required_session_packages=(
     starship
     polkit-gnome
+    rtkit
     swayosd
     qt6ct
     python
