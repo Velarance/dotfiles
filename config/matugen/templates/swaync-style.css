@@ -92,7 +92,6 @@
 
 .notification-default-action:hover,
 .notification-action:hover {
-  -gtk-icon-effect: none;
   background: @noti-bg-hover;
   /* text-shadow: 0 0 3px @text-color; */
 }

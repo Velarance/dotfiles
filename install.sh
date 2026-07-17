@@ -1634,6 +1634,54 @@ setup_nautilus_integration() {
     fi
 }
 
+flathub_remote_exists() {
+    flatpak remotes --columns=name 2>/dev/null | grep -Fxq flathub
+}
+
+configure_flathub_remote() {
+    local add_rc=0
+
+    sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo \
+        || add_rc=$?
+
+    if flathub_remote_exists; then
+        print_success "Flathub remote configured"
+    else
+        print_warning "Flathub remote is unavailable after remote-add (exit ${add_rc})"
+    fi
+    return 0
+}
+
+fetch_sdkman_java_catalog() {
+    local init="$1"
+    local output_variable="$2"
+    local attempt catalog_output parsed_ids
+
+    for attempt in 1 2 3; do
+        if catalog_output="$(bash -c 'source "$1" >/dev/null 2>&1; sdk list java' bash "${init}" 2>/dev/null)"; then
+            parsed_ids="$(awk -F'|' '
+                {
+                    gsub(/[[:space:]]/, "", $6)
+                    if ($6 ~ /^[0-9].*-tem$/) {
+                        print $6
+                    }
+                }
+            ' <<< "${catalog_output}")"
+            if [[ -n "${parsed_ids}" ]]; then
+                printf -v "${output_variable}" '%s' "${catalog_output}"
+                return 0
+            fi
+        fi
+
+        if [[ "${attempt}" -lt 3 ]]; then
+            print_warning "SDKMAN Java catalog unavailable (attempt ${attempt}/3); retrying"
+            sleep 2
+        fi
+    done
+
+    return 1
+}
+
 install_sdkman_java() {
     local init="${HOME}/.sdkman/bin/sdkman-init.sh"
     if [[ ! -s "${init}" ]]; then
@@ -1641,11 +1689,23 @@ install_sdkman_java() {
         return 0
     fi
 
+    local catalog=""
+    if ! fetch_sdkman_java_catalog "${init}" catalog; then
+        print_warning "SDKMAN Java catalog unavailable after 3 attempts; skipping Java installation"
+        return 0
+    fi
+
     local major id default_id=""
     for major in 8 17 21 26; do
-        id=$( source "${init}" >/dev/null 2>&1; sdk list java 2>/dev/null \
-              | awk -F'|' '{gsub(/ /,"",$6); print $6}' \
-              | grep -E "^${major}"'\.[0-9].*-tem$' | head -1 ) || true
+        id="$(awk -F'|' -v major="${major}" '
+            {
+                gsub(/[[:space:]]/, "", $6)
+                if ($6 ~ ("^" major "\\.[0-9].*-tem$")) {
+                    print $6
+                    exit
+                }
+            }
+        ' <<< "${catalog}")"
         if [[ -z "${id}" ]]; then
             print_warning "No Temurin build found for Java ${major}"
             continue
@@ -1752,22 +1812,14 @@ install_optional_components() {
     fi
 
     # Flatpak + Flathub
-    flatpak_post_install() {
-        if sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo; then
-            print_success "Flathub remote added"
-        else
-            print_warning "Failed to add Flathub remote"
-        fi
-    }
-
     if ! command_exists flatpak; then
         if ask_confirmation "Install Flatpak + Flathub? (yay -S flatpak)"; then
-            install_optional_tool "Flatpak" "flatpak" flatpak_post_install
+            install_optional_tool "Flatpak" "flatpak" configure_flathub_remote
         fi
     else
         print_success "Flatpak already installed"
-        if ! flatpak remotes 2>/dev/null | grep -q '^flathub'; then
-            flatpak_post_install
+        if ! flathub_remote_exists; then
+            configure_flathub_remote
         fi
     fi
 
@@ -2651,6 +2703,57 @@ check_manual_hibernation() {
     return 0
 }
 
+postflight_hyprland_config() {
+    local target="${CONFIG_DIR}/hypr/hyprland.conf"
+    local verify_output systeminfo config_errors
+
+    if ! command_exists Hyprland; then
+        print_warning "Hyprland executable is unavailable; config verification skipped"
+        return 0
+    fi
+
+    if ! verify_output="$(Hyprland --verify-config --config "${target}" 2>&1)"; then
+        verify_output="$(printf '%s' "${verify_output}" | tr '\n' ' ')"
+        print_warning "Hyprland config verification failed for ${target}: ${verify_output:-unknown error}"
+        return 0
+    fi
+
+    if ! command_exists hyprctl || [[ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+        print_success "Hyprland config verified for the next session"
+        return 0
+    fi
+
+    if ! systeminfo="$(hyprctl systeminfo 2>/dev/null)"; then
+        print_warning "Hyprland config verified, but the running config provider could not be detected"
+        return 0
+    fi
+
+    if [[ "${target}" == *.conf ]] \
+        && grep -Eiq '^[[:space:]]*configProvider:[[:space:]]*lua([[:space:]]|$)' <<< "${systeminfo}"; then
+        print_warning "Running Hyprland uses the Lua config provider; logout or reboot is required to activate ${target}"
+        return 0
+    fi
+
+    if ! hyprctl reload >/dev/null 2>&1; then
+        print_warning "Hyprland config verified, but reload failed"
+        return 0
+    fi
+
+    if ! config_errors="$(hyprctl configerrors 2>&1)"; then
+        print_warning "Hyprland reloaded, but configerrors could not be queried"
+        return 0
+    fi
+
+    if [[ -n "$(printf '%s' "${config_errors}" | tr -d '[:space:]')" ]]; then
+        config_errors="$(printf '%s' "${config_errors}" | tr '\n' ' ')"
+        print_warning "Hyprland reload completed with config errors: ${config_errors}"
+        return 0
+    fi
+
+    print_success "Hyprland config reloaded without errors"
+    return 0
+}
+
 #==============================================================================
 # Main Installation
 #==============================================================================
@@ -2718,12 +2821,10 @@ main() {
     generate_gtk_bookmarks
     set_default_shell
     disable_faillock
+    postflight_hyprland_config
 
-    # Reload Hyprland and launch services if running
+    # Launch Waybar if Hyprland is running and it is not already active.
     if command_exists hyprctl && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
-        hyprctl reload && print_success "Hyprland config reloaded"
-
-        # Launch waybar if not running
         if ! pgrep -x waybar > /dev/null; then
             "${DOTFILES_DIR}/config/waybar/launch.sh" &
             disown

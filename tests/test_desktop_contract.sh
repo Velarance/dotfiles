@@ -90,6 +90,7 @@ done
 autostart="${ROOT}/config/hypr/conf/autostart.conf"
 hyprland="${ROOT}/config/hypr/hyprland.conf"
 polkit_service="${ROOT}/config/systemd/user/polkit-gnome-authentication-agent.service"
+swaync_style_template="${ROOT}/config/matugen/templates/swaync-style.css"
 
 ! grep -Eq '^[[:space:]]*exec-once[[:space:]]*=[[:space:]]*swaync([[:space:]]|$)' "${autostart}" \
     || fail "swaync must not be started as an unmanaged process"
@@ -108,6 +109,11 @@ grep -Fxq 'Restart=on-failure' "${polkit_service}" \
     || fail "the polkit user service must restart after failures"
 grep -Fxq 'RestartSec=1' "${polkit_service}" \
     || fail "the polkit user service restart delay is not bounded"
+
+[[ -f "${swaync_style_template}" ]] \
+    || fail "the managed SwayNC stylesheet template is missing"
+! grep -Eq '^[[:space:]]*-gtk-icon-effect[[:space:]]*:' "${swaync_style_template}" \
+    || fail "the SwayNC template must not use the unsupported -gtk-icon-effect property"
 
 dbus_updates=$(grep -hF 'dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP' \
     "${autostart}" "${hyprland}" | wc -l)

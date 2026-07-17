@@ -68,6 +68,204 @@ fi
 test_tmp=$(mktemp -d)
 trap 'rm -rf -- "${test_tmp}"' EXIT
 
+if ! FLATPAK_MESSAGES="${test_tmp}/flatpak-messages" bash -c '
+    set -euo pipefail
+    source "$1"
+    remote_added=0
+    sudo_args=""
+    sudo() {
+        sudo_args="$*"
+        remote_added=1
+        return 124
+    }
+    flatpak() {
+        [[ "${1:-}" == "remotes" ]]
+        [[ "${remote_added}" -eq 1 ]] && printf "flathub\n"
+    }
+    print_success() { printf "success:%s\n" "$1" >> "${FLATPAK_MESSAGES:?}"; }
+    print_warning() { printf "warning:%s\n" "$1" >> "${FLATPAK_MESSAGES:?}"; }
+    configure_flathub_remote
+    [[ "${sudo_args}" == "flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo" ]]
+' bash "${INSTALLER}"; then
+    fail "Flathub postcondition must survive a timed-out remote-add command"
+fi
+grep -Fxq 'success:Flathub remote configured' "${test_tmp}/flatpak-messages" \
+    || fail "Flathub setup did not report the verified remote postcondition"
+! grep -Fq 'warning:' "${test_tmp}/flatpak-messages" \
+    || fail "Flathub setup warned even though the remote exists after the timeout"
+
+sdkman_home="${test_tmp}/sdkman-home"
+sdkman_init="${sdkman_home}/.sdkman/bin/sdkman-init.sh"
+mkdir -p "${sdkman_init%/*}"
+cat > "${sdkman_init}" <<'FAKE_SDKMAN_INIT'
+sdk() {
+    case "${1:-} ${2:-}" in
+        'list java')
+            local count=0
+            [[ ! -f "${SDK_LIST_COUNT:?}" ]] || count="$(< "${SDK_LIST_COUNT}")"
+            count=$((count + 1))
+            printf '%s\n' "${count}" > "${SDK_LIST_COUNT}"
+            [[ "${count}" -gt 1 ]] || return 0
+            cat <<'CATALOG'
+ Temurin | | | | | 8.0.492-tem |
+ Temurin | | | | | 17.0.19-tem |
+ Temurin | | | | | 21.0.11-tem |
+ Temurin | | | | | 26.0.1-tem |
+CATALOG
+            ;;
+        'install java')
+            printf 'install:%s\n' "${3:?}" >> "${SDK_ACTIONS:?}"
+            mkdir -p "${HOME}/.sdkman/candidates/java/${3}"
+            ;;
+        'default java')
+            printf 'default:%s\n' "${3:?}" >> "${SDK_ACTIONS:?}"
+            ;;
+        *)
+            return 64
+            ;;
+    esac
+}
+FAKE_SDKMAN_INIT
+
+if ! HOME="${sdkman_home}" \
+    SDK_LIST_COUNT="${test_tmp}/sdk-list-count" \
+    SDK_ACTIONS="${test_tmp}/sdk-actions" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        print_header() { :; }
+        print_success() { :; }
+        print_warning() { :; }
+        print_error() { :; }
+        sleep() { :; }
+        install_sdkman_java
+    ' bash "${INSTALLER}"; then
+    fail "SDKMAN Java setup must recover from a transient empty catalog"
+fi
+[[ "$(< "${test_tmp}/sdk-list-count")" == "2" ]] \
+    || fail "SDKMAN must fetch one shared catalog with bounded retry instead of querying per Java major"
+for java_id in 8.0.492-tem 17.0.19-tem 21.0.11-tem 26.0.1-tem; do
+    grep -Fxq "install:${java_id}" "${test_tmp}/sdk-actions" \
+        || fail "SDKMAN did not install ${java_id} from the captured catalog"
+done
+grep -Fxq 'default:21.0.11-tem' "${test_tmp}/sdk-actions" \
+    || fail "SDKMAN must preserve Java 21 as the default"
+
+sdkman_failure_home="${test_tmp}/sdkman-failure-home"
+sdkman_failure_init="${sdkman_failure_home}/.sdkman/bin/sdkman-init.sh"
+mkdir -p "${sdkman_failure_init%/*}"
+cat > "${sdkman_failure_init}" <<'FAKE_SDKMAN_FAILURE_INIT'
+sdk() {
+    local count=0
+    [[ "${1:-} ${2:-}" == "list java" ]] || {
+        printf '%s\n' "$*" >> "${SDK_FAILURE_ACTIONS:?}"
+        return 0
+    }
+    [[ ! -f "${SDK_FAILURE_COUNT:?}" ]] || count="$(< "${SDK_FAILURE_COUNT}")"
+    printf '%s\n' "$((count + 1))" > "${SDK_FAILURE_COUNT}"
+}
+FAKE_SDKMAN_FAILURE_INIT
+
+if ! HOME="${sdkman_failure_home}" \
+    SDK_FAILURE_COUNT="${test_tmp}/sdk-failure-count" \
+    SDK_FAILURE_ACTIONS="${test_tmp}/sdk-failure-actions" \
+    SDK_FAILURE_MESSAGES="${test_tmp}/sdk-failure-messages" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        print_header() { :; }
+        print_success() { :; }
+        print_warning() { printf "%s\n" "$1" >> "${SDK_FAILURE_MESSAGES:?}"; }
+        print_error() { :; }
+        sleep() { :; }
+        install_sdkman_java
+    ' bash "${INSTALLER}"; then
+    fail "an unavailable SDKMAN catalog must remain nonfatal"
+fi
+[[ "$(< "${test_tmp}/sdk-failure-count")" == "3" ]] \
+    || fail "SDKMAN catalog retrieval must stop after three attempts"
+[[ ! -s "${test_tmp}/sdk-failure-actions" ]] \
+    || fail "SDKMAN must not install or select Java without a valid catalog"
+grep -Fxq 'SDKMAN Java catalog unavailable after 3 attempts; skipping Java installation' \
+    "${test_tmp}/sdk-failure-messages" \
+    || fail "SDKMAN catalog failure warning must state the bounded failure and skipped action"
+
+hypr_home="${test_tmp}/hypr-home"
+hypr_target="${hypr_home}/.config/hypr/hyprland.conf"
+mkdir -p "${hypr_target%/*}"
+printf 'monitor = , preferred, auto, 1\n' > "${hypr_target}"
+
+if ! HOME="${hypr_home}" \
+    HYPR_TARGET="${hypr_target}" \
+    HYPR_VERIFY_LOG="${test_tmp}/hypr-verify" \
+    HYPR_CALL_LOG="${test_tmp}/hypr-calls" \
+    HYPR_MESSAGES="${test_tmp}/hypr-messages" \
+    HYPRLAND_INSTANCE_SIGNATURE="fixture" \
+    bash -c '
+        set -euo pipefail
+        source "$1"
+        fixture_verify_rc=0
+        fixture_provider=hyprlang
+        fixture_config_errors=""
+        Hyprland() {
+            printf "%s\n" "$*" >> "${HYPR_VERIFY_LOG:?}"
+            if [[ "${fixture_verify_rc}" -ne 0 ]]; then
+                printf "fixture verification error\n" >&2
+                return "${fixture_verify_rc}"
+            fi
+            printf "Config OK\n"
+        }
+        hyprctl() {
+            printf "%s\n" "$*" >> "${HYPR_CALL_LOG:?}"
+            case "${1:-}" in
+                systeminfo) printf "configProvider: %s\n" "${fixture_provider}" ;;
+                reload) : ;;
+                configerrors) printf "%s" "${fixture_config_errors}" ;;
+                *) return 64 ;;
+            esac
+        }
+        print_success() { printf "success:%s\n" "$1" >> "${HYPR_MESSAGES:?}"; }
+        print_warning() { printf "warning:%s\n" "$1" >> "${HYPR_MESSAGES:?}"; }
+        reset_logs() { : > "${HYPR_VERIFY_LOG}"; : > "${HYPR_CALL_LOG}"; : > "${HYPR_MESSAGES}"; }
+
+        reset_logs
+        fixture_provider=lua
+        postflight_hyprland_config
+        [[ "$(< "${HYPR_VERIFY_LOG}")" == "--verify-config --config ${HYPR_TARGET}" ]]
+        [[ "$(< "${HYPR_CALL_LOG}")" == "systeminfo" ]]
+        grep -Fxq "warning:Running Hyprland uses the Lua config provider; logout or reboot is required to activate ${HYPR_TARGET}" "${HYPR_MESSAGES}"
+        ! grep -Fq "success:Hyprland config reloaded" "${HYPR_MESSAGES}"
+
+        reset_logs
+        fixture_provider=hyprlang
+        fixture_config_errors=""
+        postflight_hyprland_config
+        mapfile -t calls < "${HYPR_CALL_LOG}"
+        [[ "${#calls[@]}" -eq 3 ]]
+        [[ "${calls[0]}" == "systeminfo" && "${calls[1]}" == "reload" && "${calls[2]}" == "configerrors" ]]
+        grep -Fxq "success:Hyprland config reloaded without errors" "${HYPR_MESSAGES}"
+
+        reset_logs
+        fixture_config_errors="fixture config error"
+        postflight_hyprland_config
+        grep -Fxq "warning:Hyprland reload completed with config errors: fixture config error" "${HYPR_MESSAGES}"
+        ! grep -Fq "success:Hyprland config reloaded" "${HYPR_MESSAGES}"
+
+        reset_logs
+        fixture_verify_rc=1
+        fixture_config_errors=""
+        postflight_hyprland_config
+        [[ ! -s "${HYPR_CALL_LOG}" ]]
+        grep -Fxq "warning:Hyprland config verification failed for ${HYPR_TARGET}: fixture verification error" "${HYPR_MESSAGES}"
+    ' bash "${INSTALLER}"; then
+    fail "Hyprland postflight must verify provider-aware reload behavior"
+fi
+
+grep -Fxq '    postflight_hyprland_config' <<< "${main_body}" \
+    || fail "main must run the Hyprland config postflight helper"
+! grep -Fq 'hyprctl reload && print_success "Hyprland config reloaded"' <<< "${main_body}" \
+    || fail "main must not report a blind Hyprland reload as successful"
+
 local_home="${test_tmp}/local-home"
 mkdir -p "${local_home}/.config/hypr/conf"
 printf 'monitor = test-output\n' \
