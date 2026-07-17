@@ -40,6 +40,7 @@ daemon_probe_pid=""
 music_holder_pid=""
 music_close_pid=""
 bind_owner_pid=""
+screen_owner_pid=""
 cleanup() {
     if [[ -n "${holder_pid}" ]] && kill -0 "${holder_pid}" 2>/dev/null; then
         kill "${holder_pid}" 2>/dev/null || true
@@ -76,6 +77,10 @@ cleanup() {
     if [[ -n "${bind_owner_pid}" ]] && kill -0 "${bind_owner_pid}" 2>/dev/null; then
         kill "${bind_owner_pid}" 2>/dev/null || true
         wait "${bind_owner_pid}" 2>/dev/null || true
+    fi
+    if [[ -n "${screen_owner_pid}" ]] && kill -0 "${screen_owner_pid}" 2>/dev/null; then
+        kill "${screen_owner_pid}" 2>/dev/null || true
+        wait "${screen_owner_pid}" 2>/dev/null || true
     fi
     rm -rf -- "${test_tmp}"
 }
@@ -149,7 +154,20 @@ set -euo pipefail
 
 case "${1:-} ${2:-}" in
     "monitors -j")
-        printf '[{"id":0,"name":"TEST-1","focused":true}]\n'
+        [[ "${FAKE_HYPRCTL_MONITORS_FAIL:-0}" != "1" ]] || exit 4
+        if [[ -n "${FAKE_HYPRCTL_MONITORS_JSON:-}" ]]; then
+            printf '%s\n' "${FAKE_HYPRCTL_MONITORS_JSON}"
+        else
+            printf '[{"id":0,"name":"TEST-1","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0}]\n'
+        fi
+        ;;
+    "cursorpos -j")
+        [[ "${FAKE_HYPRCTL_CURSORPOS_FAIL:-0}" != "1" ]] || exit 4
+        if [[ -n "${FAKE_HYPRCTL_CURSORPOS_JSON:-}" ]]; then
+            printf '%s\n' "${FAKE_HYPRCTL_CURSORPOS_JSON}"
+        else
+            printf '{"x":0,"y":0}\n'
+        fi
         ;;
     "workspaces -j")
         printf '[{"id":1,"monitorID":0},{"id":3,"monitorID":0}]\n'
@@ -208,7 +226,19 @@ set -euo pipefail
 printf '%s\n' "$*" >> "${FAKE_EWW_LOG}"
 if [[ -n "${FAKE_EWW_LAYER_FLAG:-}" ]]; then
     case " $* " in
-        *" open music "*) : > "${FAKE_EWW_LAYER_FLAG}" ;;
+        *" open music "*)
+            open_count=0
+            if [[ -n "${FAKE_EWW_OPEN_COUNT_FILE:-}" && -r "${FAKE_EWW_OPEN_COUNT_FILE}" ]]; then
+                read -r open_count < "${FAKE_EWW_OPEN_COUNT_FILE}"
+            fi
+            open_count=$((open_count + 1))
+            if [[ -n "${FAKE_EWW_OPEN_COUNT_FILE:-}" ]]; then
+                printf '%s\n' "${open_count}" > "${FAKE_EWW_OPEN_COUNT_FILE}"
+            fi
+            if ((open_count >= ${FAKE_EWW_OPEN_SUCCEEDS_AFTER:-1})); then
+                : > "${FAKE_EWW_LAYER_FLAG}"
+            fi
+            ;;
         *" close music "*) rm -f -- "${FAKE_EWW_LAYER_FLAG}" ;;
     esac
 fi
@@ -428,6 +458,86 @@ grep -Fq 'eww-music.lock' "${ROOT}/config/eww/scripts/close.sh" \
     || fail "music close action is not serialized with the toggle"
 grep -Eq '^flock[[:space:]]+9([[:space:]]|$)' "${ROOT}/config/eww/scripts/close.sh" \
     || fail "music close action can time out and silently lose a toggle race"
+
+toggle_script="${ROOT}/config/eww/scripts/toggle.sh"
+target_capture_line="$(grep -nF 'target_monitor=$(hypr_music_target_monitor' "${toggle_script}" | cut -d: -f1 | head -1 || true)"
+visible_probe_line="$(grep -nF 'eww_music_overlay_visible' "${toggle_script}" | cut -d: -f1 | head -1 || true)"
+[[ -n "${target_capture_line}" && -n "${visible_probe_line}" ]] \
+    || fail "music toggle must capture a target monitor and probe overlay visibility"
+if (( target_capture_line >= visible_probe_line )); then
+    fail "music toggle samples the cursor after potentially blocking overlay IPC"
+fi
+
+cursor_query_line="$(grep -nF 'cursor_json=$(hypr_ipc cursorpos -j' "${EWW_OVERLAY}" | cut -d: -f1 | head -1 || true)"
+monitors_query_line="$(grep -nF 'monitors_json=$(hypr_ipc monitors -j' "${EWW_OVERLAY}" | cut -d: -f1 | head -1 || true)"
+[[ -n "${cursor_query_line}" && -n "${monitors_query_line}" ]] \
+    || fail "music target helper must query both cursor position and monitors"
+if (( cursor_query_line >= monitors_query_line )); then
+    fail "music target helper does not snapshot the cursor before monitor discovery IPC"
+fi
+
+screen_layer_flag="${test_tmp}/screen-layer-open"
+screen_open_count="${test_tmp}/screen-open-count"
+screen_monitors='[{"id":0,"name":"DVI-D-1","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","focused":false,"x":1920,"y":0,"width":2560,"height":1440,"scale":2,"transform":1}]'
+/usr/bin/sleep 30 &
+screen_owner_pid=$!
+: > "${FAKE_EWW_LOG}"
+rm -f -- "${screen_layer_flag}" "${screen_open_count}"
+HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
+    FAKE_EWW_LAYER_PID="${screen_owner_pid}" \
+    FAKE_EWW_LAYER_FLAG="${screen_layer_flag}" \
+    FAKE_HYPRCTL_MONITORS_JSON="${screen_monitors}" \
+    FAKE_HYPRCTL_CURSORPOS_JSON='{"x":2500,"y":1200}' \
+    EWW_LAYER_SETTLE_ATTEMPTS=2 EWW_LAYER_SETTLE_DELAY=0.01 \
+    bash "${ROOT}/config/eww/scripts/toggle.sh" \
+    || fail "music toggle failed while selecting the monitor under the cursor"
+grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen DP-1" "${FAKE_EWW_LOG}" \
+    || fail "music popup did not prefer the transformed monitor under the cursor over the focused monitor"
+rm -f -- "${screen_layer_flag}"
+
+: > "${FAKE_EWW_LOG}"
+HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
+    FAKE_EWW_LAYER_PID="${screen_owner_pid}" \
+    FAKE_EWW_LAYER_FLAG="${screen_layer_flag}" \
+    FAKE_HYPRCTL_MONITORS_JSON='[{"id":0,"name":"HDMI-A-1","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","focused":false,"x":1920,"y":0,"width":1920,"height":1080,"scale":1,"transform":0}]' \
+    FAKE_HYPRCTL_CURSORPOS_JSON='{invalid-json' \
+    EWW_LAYER_SETTLE_ATTEMPTS=2 EWW_LAYER_SETTLE_DELAY=0.01 \
+    bash "${ROOT}/config/eww/scripts/toggle.sh" \
+    || fail "music toggle failed while falling back to the focused monitor"
+grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen HDMI-A-1" "${FAKE_EWW_LOG}" \
+    || fail "music popup did not fall back to the focused monitor after invalid cursor data"
+rm -f -- "${screen_layer_flag}"
+
+: > "${FAKE_EWW_LOG}"
+HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
+    FAKE_EWW_LAYER_PID="${screen_owner_pid}" \
+    FAKE_EWW_LAYER_FLAG="${screen_layer_flag}" \
+    FAKE_HYPRCTL_MONITORS_FAIL=1 \
+    EWW_LAYER_SETTLE_ATTEMPTS=2 EWW_LAYER_SETTLE_DELAY=0.01 \
+    bash "${ROOT}/config/eww/scripts/toggle.sh" \
+    || fail "music toggle failed when monitor discovery was unavailable"
+grep -Fqx -- "-c ${fake_home}/.config/eww open music" "${FAKE_EWW_LOG}" \
+    || fail "music popup did not gracefully open without a screen after monitor discovery failed"
+rm -f -- "${screen_layer_flag}"
+
+: > "${FAKE_EWW_LOG}"
+rm -f -- "${screen_open_count}"
+HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
+    FAKE_EWW_LAYER_PID="${screen_owner_pid}" \
+    FAKE_EWW_LAYER_FLAG="${screen_layer_flag}" \
+    FAKE_EWW_OPEN_COUNT_FILE="${screen_open_count}" \
+    FAKE_EWW_OPEN_SUCCEEDS_AFTER=2 \
+    FAKE_HYPRCTL_MONITORS_JSON="${screen_monitors}" \
+    FAKE_HYPRCTL_CURSORPOS_JSON='{"x":2500,"y":1200}' \
+    EWW_LAYER_SETTLE_ATTEMPTS=1 EWW_LAYER_SETTLE_DELAY=0.01 \
+    bash "${ROOT}/config/eww/scripts/toggle.sh" \
+    || fail "music toggle did not recover after its first open attempt failed"
+[[ $(grep -Fxc -- "-c ${fake_home}/.config/eww open music --screen DP-1" "${FAKE_EWW_LOG}") -eq 2 ]] \
+    || fail "music popup lost its target screen while retrying after an Eww restart"
+rm -f -- "${screen_layer_flag}"
+kill "${screen_owner_pid}" 2>/dev/null || true
+wait "${screen_owner_pid}" 2>/dev/null || true
+screen_owner_pid=""
 
 : > "${FAKE_HYPRCTL_LOG}"
 if HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \

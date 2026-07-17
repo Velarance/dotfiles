@@ -320,6 +320,71 @@ if ! HOME="${symlink_home}" bash -c '
     fail "setup_local_config must preserve generated state through the Hyprland directory symlink"
 fi
 
+primary_home="${test_tmp}/primary-home"
+primary_drm="${test_tmp}/primary-drm"
+mkdir -p "${primary_home}/.config/hypr/conf" "${primary_drm}/card1-DP-1"
+head -c 128 /dev/zero > "${primary_drm}/card1-DP-1/edid"
+printf '%s\n' \
+    '# user setting before' \
+    'env = KEEP_ME,1' \
+    '# BEGIN DOTFILES PRIMARY MONITOR' \
+    'cursor {' \
+    '    default_monitor = OLD-1' \
+    '}' \
+    'workspace = 1, monitor:OLD-1, default:true' \
+    '# END DOTFILES PRIMARY MONITOR' \
+    '# user setting after' \
+    > "${primary_home}/.config/hypr/conf/local.conf"
+
+if ! HOME="${primary_home}" DOTFILES_DRM_SYSFS_ROOT="${primary_drm}" bash -c '
+    set -euo pipefail
+    source "$1"
+    print_success() { :; }
+    print_warning() { :; }
+
+    expected_edid="$(printf "%0256d" 0)"
+    [[ "$(read_hypr_monitor_edid DP-1)" == "${expected_edid}" ]]
+    ! read_hypr_monitor_edid "DP-1;bad" >/dev/null 2>&1
+    ! read_hypr_monitor_edid HDMI-A-1 >/dev/null 2>&1
+
+    local_conf="${HOME}/.config/hypr/conf/local.conf"
+    configure_hypr_primary_monitor DP-1
+    grep -Fxq "# user setting before" "${local_conf}"
+    grep -Fxq "env = KEEP_ME,1" "${local_conf}"
+    grep -Fxq "# user setting after" "${local_conf}"
+    [[ "$(grep -Fc "# BEGIN DOTFILES PRIMARY MONITOR" "${local_conf}")" -eq 1 ]]
+    [[ "$(grep -Fc "# END DOTFILES PRIMARY MONITOR" "${local_conf}")" -eq 1 ]]
+    grep -Fxq "    default_monitor = DP-1" "${local_conf}"
+    grep -Fxq "workspace = 1, monitor:DP-1, default:true" "${local_conf}"
+    ! grep -Fq OLD-1 "${local_conf}"
+
+    cp "${local_conf}" "${local_conf}.first"
+    configure_hypr_primary_monitor DP-1
+    cmp -s "${local_conf}.first" "${local_conf}"
+
+    configure_hypr_primary_monitor HDMI-A-1
+    grep -Fxq "    default_monitor = HDMI-A-1" "${local_conf}"
+    grep -Fxq "workspace = 1, monitor:HDMI-A-1, default:true" "${local_conf}"
+    ! grep -Fq "default_monitor = DP-1" "${local_conf}"
+    grep -Fxq "env = KEEP_ME,1" "${local_conf}"
+
+    printf "# BEGIN DOTFILES PRIMARY MONITOR\n" >> "${local_conf}"
+    cp "${local_conf}" "${local_conf}.malformed"
+    if configure_hypr_primary_monitor DP-1; then
+        exit 70
+    fi
+    cmp -s "${local_conf}.malformed" "${local_conf}"
+
+    mv "${local_conf}.first" "${local_conf}"
+    cp "${local_conf}" "${local_conf}.before-invalid"
+    if configure_hypr_primary_monitor "DP-1;bad"; then
+        exit 71
+    fi
+    cmp -s "${local_conf}.before-invalid" "${local_conf}"
+' bash "${INSTALLER}"; then
+    fail "primary-monitor helpers must persist EDID and safely manage local.conf"
+fi
+
 service_home="${test_tmp}/service-home"
 service_fake_bin="${test_tmp}/service-fake-bin"
 service_systemctl_log="${test_tmp}/service-systemctl.log"

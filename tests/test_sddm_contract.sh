@@ -195,10 +195,15 @@ assert_log_calls() {
 run_xsetup_fixture() {
     local fixture_dir="${test_tmp}/xsetup-fixture"
     local fake_bin="${fixture_dir}/bin"
-    local primary_output="${fixture_dir}/primary-output"
+    local primary_monitor="${fixture_dir}/primary-monitor"
     local base_xsetup="${fixture_dir}/Xsetup"
     local fixture_xsetup="${fixture_dir}/Xsetup-dotfiles"
     local event_log="${fixture_dir}/events.log"
+    local error_log="${fixture_dir}/errors.log"
+    local edid_a edid_b exact_props mismatch_props
+
+    printf -v edid_a '%0256d' 0
+    printf -v edid_b '%0256d' 1
 
     mkdir -p "${fake_bin}"
     cat > "${fake_bin}/xrandr" <<'FAKE_XRANDR'
@@ -206,13 +211,20 @@ run_xsetup_fixture() {
 set -uo pipefail
 
 printf 'xrandr %s\n' "$*" >> "${XSETUP_EVENT_LOG}"
+if [[ -n "${XSETUP_XRANDR_SLEEP:-}" ]]; then
+    exec sleep "${XSETUP_XRANDR_SLEEP}"
+fi
+
 
 case "${1:-}" in
+    --props)
+        printf '%s\n' "${XSETUP_PROPS_OUTPUT:-DP-1 connected 1920x1080+0+0}"
+        ;;
     --query)
-        printf '%s\n' "${XSETUP_QUERY_OUTPUT:-DP-1 connected 1920x1080+0+0}"
+        printf '%s\n' "${XSETUP_QUERY_OUTPUT:-${XSETUP_EXPECT_OUTPUT:-DP-1} connected primary 1920x1080+0+0}"
         ;;
     --output)
-        [[ "${2:-}" == 'DP-1' && "${3:-}" == '--primary' ]] || exit 64
+        [[ "${2:-}" == "${XSETUP_EXPECT_OUTPUT:-DP-1}" && "${3:-}" == '--primary' ]] || exit 64
         [[ "${XSETUP_PRIMARY_FAIL:-0}" != '1' ]] || exit 66
         ;;
     *)
@@ -222,69 +234,181 @@ esac
 FAKE_XRANDR
     chmod +x "${fake_bin}/xrandr"
 
+    cat > "${fake_bin}/xdotool" <<'FAKE_XDOTOOL'
+#!/usr/bin/env bash
+set -uo pipefail
+printf 'xdotool %s\n' "$*" >> "${XSETUP_EVENT_LOG}"
+if [[ -n "${XSETUP_XDOTOOL_SLEEP:-}" ]]; then
+    sleep "${XSETUP_XDOTOOL_SLEEP}"
+fi
+[[ "${XSETUP_XDOTOOL_FAIL:-0}" != '1' ]]
+FAKE_XDOTOOL
+    chmod +x "${fake_bin}/xdotool"
+
     cat > "${base_xsetup}" <<'FAKE_BASE_XSETUP'
 #!/usr/bin/env bash
 printf '%s\n' base >> "${XSETUP_EVENT_LOG}"
+if [[ -n "${XSETUP_BASE_SLEEP:-}" ]]; then
+    exec sleep "${XSETUP_BASE_SLEEP}"
+fi
+
 FAKE_BASE_XSETUP
     chmod +x "${base_xsetup}"
 
     # Substitute only the system-owned state path in a disposable copy.
     sed \
         -e "s|/usr/share/sddm/scripts/Xsetup|${base_xsetup}|g" \
-        -e "s|/etc/sddm/primary-output|${primary_output}|g" \
+        -e "s|/etc/sddm/primary-monitor|${primary_monitor}|g" \
         -e "s|/usr/bin/xrandr|${fake_bin}/xrandr|g" \
+        -e "s|/usr/bin/xdotool|${fake_bin}/xdotool|g" \
+        -e 's|readonly COMMAND_TIMEOUT="5s"|readonly COMMAND_TIMEOUT="0.2s"|' \
+        -e 's|readonly POINTER_TIMEOUT="2s"|readonly POINTER_TIMEOUT="0.2s"|' \
         "${XSETUP}" > "${fixture_xsetup}"
     chmod +x "${fixture_xsetup}"
 
     : > "${event_log}"
-    rm -f -- "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}"; then
+    : > "${error_log}"
+    rm -f -- "${primary_monitor}"
+    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}" 2> "${error_log}"; then
         fail 'Xsetup must succeed without a saved primary output'
     fi
     assert_log_calls 'without config' "${event_log}" base
 
     : > "${event_log}"
-    printf '%s\n' 'DP-1' > "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}"; then
+    : > "${error_log}"
+    printf 'hypr_output=DP-1\nedid=%s\n' "${edid_a}" > "${primary_monitor}"
+    exact_props="$(printf 'DP-1 connected 1920x1080+0+0\n\tEDID:\n\t\t%s\n' "${edid_a}")"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${exact_props}" \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
         fail 'Xsetup must succeed with a valid saved primary output'
     fi
     assert_log_calls 'with DP-1' "${event_log}" \
-        base 'xrandr --query' 'xrandr --output DP-1 --primary'
+        base 'xrandr --props' 'xrandr --output DP-1 --primary' \
+        'xrandr --query' 'xdotool mousemove 960 540'
 
     : > "${event_log}"
-    printf '%s\n' 'stale-output' > "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}"; then
-        fail 'Xsetup must tolerate a stale saved primary output'
+    : > "${error_log}"
+    mismatch_props="$(printf '%s\n' \
+        'DVI-D-0 connected 1920x1080+0+0' \
+        $'\tEDID:' $'\t\t'"${edid_b}" \
+        'DP-0 connected 2560x1440+1920+100' \
+        $'\tEDID:' $'\t\t'"${edid_a}")"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${mismatch_props}" \
+        XSETUP_EXPECT_OUTPUT=DP-0 \
+        XSETUP_QUERY_OUTPUT='DP-0 connected primary 2560x1440+1920+100' \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must resolve an NVIDIA connector rename by EDID'
     fi
-    assert_log_calls 'with stale output' "${event_log}" base 'xrandr --query'
+    assert_log_calls 'with NVIDIA connector rename' "${event_log}" \
+        base 'xrandr --props' 'xrandr --output DP-0 --primary' \
+        'xrandr --query' 'xdotool mousemove 3200 820'
 
     : > "${event_log}"
-    printf '%s\n' 'DP-1;bad' > "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}"; then
-        fail 'Xsetup must tolerate an invalid saved primary output'
+    : > "${error_log}"
+    collision_props="$(printf '%s\n' \
+        'DP-1 connected 1920x1080+0+0' \
+        $'\tEDID:' $'\t\t'"${edid_b}" \
+        'DP-0 connected 2560x1440+1920+100' \
+        $'\tEDID:' $'\t\t'"${edid_a}")"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${collision_props}" \
+        XSETUP_EXPECT_OUTPUT=DP-0 \
+        XSETUP_QUERY_OUTPUT='DP-0 connected primary 2560x1440+1920+100' \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must reject an exact connector name that belongs to another EDID'
     fi
-    assert_log_calls 'with invalid output' "${event_log}" base
+    assert_log_calls 'with connector-name collision' "${event_log}" \
+        base 'xrandr --props' 'xrandr --output DP-0 --primary' \
+        'xrandr --query' 'xdotool mousemove 3200 820'
 
     : > "${event_log}"
-    printf '%s\n' 'DP-2' > "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_QUERY_OUTPUT='DP-2 disconnected primary' bash "${fixture_xsetup}"; then
-        fail 'Xsetup must tolerate a disconnected saved primary output'
+    : > "${error_log}"
+    printf 'hypr_output=DP-9\nedid=%s\n' "${edid_b}" > "${primary_monitor}"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${exact_props}" \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate a stale saved EDID'
     fi
-    assert_log_calls 'with disconnected output' "${event_log}" base 'xrandr --query'
+    assert_log_calls 'with stale EDID' "${event_log}" base 'xrandr --props'
+    grep -Fq 'no connected XRandR output matches saved EDID' "${error_log}" \
+        || fail 'Xsetup must diagnose a stale EDID'
 
     : > "${event_log}"
-    printf '%s\n' 'DP-1' > "${primary_output}"
-    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PRIMARY_FAIL=1 bash "${fixture_xsetup}"; then
+    : > "${error_log}"
+    printf '%s\n' 'hypr_output=DP-1' 'edid=deadbeef' > "${primary_monitor}"
+    if ! XSETUP_EVENT_LOG="${event_log}" bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate an invalid saved EDID'
+    fi
+    assert_log_calls 'with invalid EDID' "${event_log}" base
+    grep -Fq 'invalid primary-monitor state' "${error_log}" \
+        || fail 'Xsetup must diagnose invalid state'
+
+    : > "${event_log}"
+    : > "${error_log}"
+    printf 'hypr_output=DP-1\nedid=%s\n' "${edid_a}" > "${primary_monitor}"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${exact_props}" \
+        XSETUP_PRIMARY_FAIL=1 bash "${fixture_xsetup}" 2> "${error_log}"; then
         fail 'Xsetup must tolerate a hot-unplug race while setting primary'
     fi
     assert_log_calls 'with primary race' "${event_log}" \
-        base 'xrandr --query' 'xrandr --output DP-1 --primary'
+        base 'xrandr --props' 'xrandr --output DP-1 --primary'
+    grep -Fq 'failed to set XRandR primary output DP-1' "${error_log}" \
+        || fail 'Xsetup must diagnose an xrandr primary failure'
+
+    : > "${event_log}"
+    : > "${error_log}"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${exact_props}" \
+        XSETUP_QUERY_OUTPUT='DP-1 connected 1920x1080+0+0' \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate a failed primary postcondition'
+    fi
+    assert_log_calls 'with failed postcondition' "${event_log}" \
+        base 'xrandr --props' 'xrandr --output DP-1 --primary' 'xrandr --query'
+    grep -Fq 'primary-output postcondition failed for DP-1' "${error_log}" \
+        || fail 'Xsetup must diagnose a failed primary postcondition'
+
+    : > "${event_log}"
+    : > "${error_log}"
+    xdotool_started_at="$(date +%s)"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_PROPS_OUTPUT="${exact_props}" \
+        XSETUP_XDOTOOL_SLEEP=10 bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate a hung xdotool client'
+    fi
+    xdotool_elapsed=$(( $(date +%s) - xdotool_started_at ))
+    (( xdotool_elapsed < 5 )) \
+        || fail 'Xsetup allowed a hung xdotool client to block the greeter'
+    grep -Fq 'xdotool failed to center the pointer on DP-1' "${error_log}" \
+        || fail 'Xsetup must diagnose a timed-out xdotool client'
+
+    : > "${event_log}"
+    : > "${error_log}"
+    xrandr_started_at="$(date +%s)"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_XRANDR_SLEEP=3 \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate a hung xrandr client'
+    fi
+    xrandr_elapsed=$(( $(date +%s) - xrandr_started_at ))
+    (( xrandr_elapsed < 2 )) \
+        || fail 'Xsetup allowed a hung xrandr client to block the greeter'
+    grep -Fq 'xrandr --props failed; leaving XRandR unchanged' "${error_log}" \
+        || fail 'Xsetup must diagnose a timed-out xrandr client'
+
+    : > "${event_log}"
+    : > "${error_log}"
+    base_started_at="$(date +%s)"
+    if ! XSETUP_EVENT_LOG="${event_log}" XSETUP_BASE_SLEEP=3 \
+        bash "${fixture_xsetup}" 2> "${error_log}"; then
+        fail 'Xsetup must tolerate a hung distribution Xsetup'
+    fi
+    base_elapsed=$(( $(date +%s) - base_started_at ))
+    (( base_elapsed < 2 )) \
+        || fail 'Xsetup allowed the distribution Xsetup to block the greeter'
+    grep -Fq 'distribution Xsetup failed; continuing with the greeter' "${error_log}" \
+        || fail 'Xsetup must diagnose a timed-out distribution Xsetup'
 }
 
 if require_readable "${PACKAGES_CONF}" 'package declarations'; then
     # shellcheck source=../lib/packages.conf
     source "${PACKAGES_CONF}"
-    for package in sddm qt6-5compat qt6-virtualkeyboard xorg-xrandr; do
+    for package in sddm qt6-5compat qt6-virtualkeyboard xorg-xrandr xdotool; do
         assert_array_contains OPTIONAL_PACKAGES "${package}"
         assert_array_excludes CORE_PACKAGES "${package}"
     done
@@ -555,12 +679,18 @@ if require_readable "${INSTALLER}" 'installer'; then
         grep -Fq 'sudo find "$theme_stage" -type f -exec chmod 0644 {} +' <<< "${setup_body}" \
             || fail 'setup_sddm must set safe modes on staged Amadeus files'
 
-        grep -Fq '/etc/sddm/primary-output' <<< "${setup_body}" \
-            || fail 'setup_sddm must create /etc/sddm/primary-output'
+        grep -Fq '/etc/sddm/primary-monitor' <<< "${setup_body}" \
+            || fail 'setup_sddm must create /etc/sddm/primary-monitor'
         grep -Fq 'sudo install -o root -g root -m 0644 /dev/stdin "$primary_stage"' <<< "${setup_body}" \
-            || fail 'setup_sddm must stage the selected primary output as root'
+            || fail 'setup_sddm must stage the selected primary monitor state as root'
         grep -Fq 'sudo mv -fT "$primary_stage" "$primary_target"' <<< "${setup_body}" \
-            || fail 'setup_sddm must atomically activate the selected primary output'
+            || fail 'setup_sddm must atomically activate the selected primary monitor state'
+        grep -Fq 'read_hypr_monitor_edid "${primary_output}"' <<< "${setup_body}" \
+            || fail 'setup_sddm must persist the selected physical monitor EDID'
+        grep -Fq 'configure_hypr_primary_monitor "${primary_output}"' <<< "${setup_body}" \
+            || fail 'setup_sddm must make the selected connector primary in Hyprland'
+        grep -Fq 'local -a required_sddm_packages=(qt6-5compat qt6-virtualkeyboard xorg-xrandr xdotool)' <<< "${setup_body}" \
+            || fail 'setup_sddm must install xdotool for pointer centering'
         grep -Fq 'sudo install -d -o root -g root -m 0755 /etc/sddm /etc/sddm.conf.d "$sddm_backup_dir"' <<< "${setup_body}" \
             || fail 'setup_sddm must create the fresh-system SDDM drop-in directory'
 
@@ -584,6 +714,10 @@ if require_readable "${INSTALLER}" 'installer'; then
         drop_in_activation_line="$(line_number "${setup_body}" 'sudo[[:space:]]+mv[[:space:]]+-fT[^#]*drop_in_target')"
         theme_activation_line="$(line_number "${setup_body}" 'activate_amadeus_theme_tree')"
         smoke_line="$(line_number "${setup_body}" 'smoke_test_sddm_theme')"
+        primary_activation_line="$(line_number "${setup_body}" 'sudo[[:space:]]+mv[[:space:]]+-fT[^#]*primary_target')"
+        hook_activation_line="$(line_number "${setup_body}" 'sudo[[:space:]]+mv[[:space:]]+-fT[^#]*hook_target')"
+        hypr_primary_line="$(line_number "${setup_body}" 'configure_hypr_primary_monitor')"
+        final_override_line="$(line_number "${setup_body}" 'install_sddm_final_override')"
 
         [[ -n "${theme_stage_line}" ]] \
             || fail 'setup_sddm must stage the vendored Amadeus theme'
@@ -595,6 +729,18 @@ if require_readable "${INSTALLER}" 'installer'; then
             || fail 'setup_sddm must preflight the vendored Amadeus tree'
         [[ -n "${package_install_line}" ]] \
             || fail 'setup_sddm must install missing SDDM dependencies when needed'
+        [[ -n "${primary_activation_line}" && -n "${hook_activation_line}" ]] \
+            || fail 'setup_sddm must activate both primary-monitor state and Xsetup hook'
+        if [[ -n "${primary_activation_line}" && -n "${hook_activation_line}" ]] \
+            && (( primary_activation_line >= hook_activation_line )); then
+            fail 'setup_sddm must publish primary-monitor state before the new hook can read it'
+        fi
+        [[ -n "${hypr_primary_line}" && -n "${final_override_line}" ]] \
+            || fail 'setup_sddm must configure Hyprland only after the SDDM transaction exists'
+        if [[ -n "${hypr_primary_line}" && -n "${final_override_line}" ]] \
+            && (( hypr_primary_line <= final_override_line )); then
+            fail 'setup_sddm must not mutate local.conf before SDDM activation succeeds'
+        fi
         if [[ -n "${source_preflight_line}" && -n "${package_install_line}" ]] \
             && (( source_preflight_line >= package_install_line )); then
             fail 'setup_sddm must preflight vendored Amadeus files before sudo pacman'

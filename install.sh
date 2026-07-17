@@ -361,6 +361,122 @@ format_sddm_monitor_options() {
     '
 }
 
+read_hypr_monitor_edid() {
+    local output="$1"
+    local sysfs_root="${DOTFILES_DRM_SYSFS_ROOT:-/sys/class/drm}"
+    local path edid selected_edid=''
+    local nullglob_was_set=0
+    local -a edid_paths=()
+
+    case "${output}" in
+        ''|*[![:alnum:]._-]*) return 1 ;;
+    esac
+
+    shopt -q nullglob && nullglob_was_set=1
+    shopt -s nullglob
+    edid_paths=("${sysfs_root}"/card*-"${output}"/edid)
+    (( nullglob_was_set )) || shopt -u nullglob
+
+    for path in "${edid_paths[@]}"; do
+        [[ -r "${path}" ]] || continue
+        if ! edid="$(od -An -tx1 -v -- "${path}" 2>/dev/null | tr -d '[:space:]')"; then
+            continue
+        fi
+        edid="${edid,,}"
+        if [[ ! "${edid}" =~ ^[0-9a-f]+$ ]] \
+            || (( ${#edid} < 256 || ${#edid} % 256 != 0 )); then
+            continue
+        fi
+        if [[ -n "${selected_edid}" && "${selected_edid}" != "${edid}" ]]; then
+            return 1
+        fi
+        selected_edid="${edid}"
+    done
+
+    [[ -n "${selected_edid}" ]] || return 1
+    printf '%s\n' "${selected_edid}"
+}
+
+configure_hypr_primary_monitor() {
+    local primary_output="$1"
+    local local_conf="${CONFIG_DIR}/hypr/conf/local.conf"
+    local begin_marker='# BEGIN DOTFILES PRIMARY MONITOR'
+    local end_marker='# END DOTFILES PRIMARY MONITOR'
+    local temporary_conf
+
+    case "${primary_output}" in
+        ''|*[![:alnum:]._-]*) return 1 ;;
+    esac
+    if [[ ! -f "${local_conf}" || -L "${local_conf}" ]]; then
+        return 1
+    fi
+
+    if ! awk -v begin="${begin_marker}" -v end="${end_marker}" '
+        $0 == begin {
+            begin_count++
+            if (in_block) invalid = 1
+            in_block = 1
+            next
+        }
+        $0 == end {
+            end_count++
+            if (!in_block) invalid = 1
+            in_block = 0
+            next
+        }
+        END {
+            if (invalid || in_block || begin_count != end_count || begin_count > 1) {
+                exit 65
+            }
+        }
+    ' "${local_conf}"; then
+        return 1
+    fi
+
+    if ! temporary_conf="$(mktemp -- "${local_conf}.dotfiles-new.XXXXXX")"; then
+        return 1
+    fi
+    if ! awk -v begin="${begin_marker}" -v end="${end_marker}" '
+        $0 == begin { in_block = 1; next }
+        $0 == end { in_block = 0; next }
+        in_block { next }
+        {
+            if ($0 == "") {
+                blank_count++
+                next
+            }
+            while (blank_count > 0) {
+                print ""
+                blank_count--
+            }
+            print
+        }
+    ' "${local_conf}" > "${temporary_conf}"; then
+        rm -f -- "${temporary_conf}"
+        return 1
+    fi
+
+    if [[ -s "${temporary_conf}" ]]; then
+        printf '\n' >> "${temporary_conf}"
+    fi
+    printf '%s\n' \
+        "${begin_marker}" \
+        'cursor {' \
+        "    default_monitor = ${primary_output}" \
+        '}' \
+        "workspace = 1, monitor:${primary_output}, default:true" \
+        "${end_marker}" \
+        >> "${temporary_conf}"
+
+    if ! chmod --reference="${local_conf}" "${temporary_conf}" \
+        || ! mv -fT -- "${temporary_conf}" "${local_conf}"; then
+        rm -f -- "${temporary_conf}"
+        return 1
+    fi
+
+    print_success "Hyprland primary monitor set to ${primary_output}"
+}
+
 validate_root_file_backup() {
     local backup_path="$1"
     local checksum_path="${backup_path}.sha256"
@@ -1194,7 +1310,7 @@ setup_sddm() {
 
     if ask_confirmation "Configure SDDM with Amadeus theme?"; then
         local -a monitor_options=()
-        local choice primary_output PS3
+        local choice primary_output primary_edid PS3
         local monitors_json monitor_listing
 
         if ! command_exists hyprctl || ! command_exists jq; then
@@ -1235,6 +1351,10 @@ setup_sddm() {
             print_warning "No valid primary display selected; SDDM left unchanged"
             return 0
         fi
+        if ! primary_edid="$(read_hypr_monitor_edid "${primary_output}")"; then
+            print_warning "Cannot read a valid EDID for ${primary_output}; SDDM left unchanged"
+            return 0
+        fi
 
         local theme_source="${DOTFILES_DIR}/config/sddm/themes/amadeus"
         local upstream_source="${theme_source}/UPSTREAM"
@@ -1247,8 +1367,9 @@ setup_sddm() {
         local hook_target="/usr/local/lib/sddm/Xsetup-dotfiles"
         local hook_stage="/usr/local/lib/sddm/.Xsetup-dotfiles-new"
         local hook_backup="/usr/local/lib/sddm/.Xsetup-dotfiles-backup"
-        local primary_target="/etc/sddm/primary-output"
-        local primary_stage="/etc/sddm/.primary-output-dotfiles-new"
+        local primary_target="/etc/sddm/primary-monitor"
+        local primary_stage="/etc/sddm/.primary-monitor-dotfiles-new"
+        local legacy_primary_target="/etc/sddm/primary-output"
         local sddm_backup_dir="/etc/sddm/dotfiles-backups"
         local drop_in_target="/etc/sddm.conf.d/99-dotfiles.conf"
         local drop_in_stage="/etc/sddm/.99-dotfiles.conf-new"
@@ -1287,7 +1408,7 @@ setup_sddm() {
             return 1
         fi
 
-        local -a required_sddm_packages=(qt6-5compat qt6-virtualkeyboard xorg-xrandr)
+        local -a required_sddm_packages=(qt6-5compat qt6-virtualkeyboard xorg-xrandr xdotool)
         local -a missing_sddm_packages=()
         local package
 
@@ -1326,6 +1447,24 @@ setup_sddm() {
             return 1
         fi
 
+        # Publish the state before the new hook: the old hook ignores this file,
+        # while the new hook must never become active without it.
+        if ! sudo install -d -o root -g root -m 0755 /etc/sddm "$sddm_backup_dir"; then
+            print_error "Failed to create the SDDM state directory"
+            return 1
+        fi
+        if ! sudo rm -f -- "$primary_stage"; then
+            print_error "Failed to clear the SDDM primary-monitor staging path"
+            return 1
+        fi
+        if ! printf 'hypr_output=%s\nedid=%s\n' "${primary_output}" "${primary_edid}" \
+            | sudo install -o root -g root -m 0644 /dev/stdin "$primary_stage" \
+            || ! sudo mv -fT "$primary_stage" "$primary_target"; then
+            print_error "Failed to save the SDDM primary monitor state"
+            sudo rm -f -- "$primary_stage" || true
+            return 1
+        fi
+
         if ! create_root_file_backup_once "$hook_target" "$hook_backup"; then
             print_error "Failed to back up the existing SDDM Xsetup hook"
             sudo rm -rf -- "$theme_stage" || true
@@ -1351,16 +1490,6 @@ setup_sddm() {
 
         if ! sudo install -d -o root -g root -m 0755 /etc/sddm /etc/sddm.conf.d "$sddm_backup_dir"; then
             print_error "Failed to create the SDDM state directory"
-            return 1
-        fi
-        if ! sudo rm -f -- "$primary_stage"; then
-            print_error "Failed to clear the SDDM primary-output staging path"
-            return 1
-        fi
-        if ! printf '%s\n' "${primary_output}" | sudo install -o root -g root -m 0644 /dev/stdin "$primary_stage" \
-            || ! sudo mv -fT "$primary_stage" "$primary_target"; then
-            print_error "Failed to save the SDDM primary display"
-            sudo rm -f -- "$primary_stage" || true
             return 1
         fi
 
@@ -1411,6 +1540,13 @@ setup_sddm() {
                 print_warning "Could not remove sddm-silent-theme; Amadeus is still active"
             fi
         fi
+        if ! configure_hypr_primary_monitor "${primary_output}"; then
+            print_error "SDDM is configured, but the Hyprland primary-monitor block could not be updated"
+            return 1
+        fi
+        sudo rm -f -- "$legacy_primary_target" \
+            || print_warning "Could not remove the obsolete SDDM primary-output state"
+
         print_success "Amadeus theme configured for SDDM primary output ${primary_output}"
 
         # Enable SDDM

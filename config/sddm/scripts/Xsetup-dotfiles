@@ -1,30 +1,188 @@
 #!/usr/bin/env bash
 
-# Preserve the distribution Xsetup first, then optionally mark the connector
-# selected during installation as SDDM's primary output.
-set -euo pipefail
+# Preserve the distribution Xsetup, then resolve the physical monitor selected
+# during installation across Hyprland and XRandR connector-name differences.
+set -uo pipefail
 
 readonly BASE_XSETUP="/usr/share/sddm/scripts/Xsetup"
-readonly PRIMARY_OUTPUT_FILE="/etc/sddm/primary-output"
+readonly PRIMARY_MONITOR_FILE="/etc/sddm/primary-monitor"
 readonly XRANDR="/usr/bin/xrandr"
+readonly XDOTOOL="/usr/bin/xdotool"
+readonly TIMEOUT="/usr/bin/timeout"
+readonly COMMAND_TIMEOUT="5s"
+readonly POINTER_TIMEOUT="2s"
 
-if [[ -x "${BASE_XSETUP}" ]]; then
-    "${BASE_XSETUP}"
+diagnose() {
+    printf 'dotfiles Xsetup: %s\n' "$1" >&2
+}
+run_bounded() {
+    local duration="$1"
+    shift
+    [[ -x "${TIMEOUT}" ]] || return 127
+    "${TIMEOUT}" --foreground --kill-after=0.5s "${duration}" "$@"
+}
+
+resolve_output_by_edid() {
+    local wanted_edid="$1"
+
+    awk -v wanted="${wanted_edid}" '
+        function finish_output() {
+            if (connected && tolower(edid) == wanted) {
+                matches++
+                resolved = output
+            }
+        }
+
+        /^[^[:space:]]/ && ($2 == "connected" || $2 == "disconnected") {
+            if (saw_output) finish_output()
+            saw_output = 1
+            output = $1
+            connected = ($2 == "connected")
+            edid = ""
+            in_edid = 0
+            next
+        }
+
+        connected && /^[[:space:]]+EDID:[[:space:]]*$/ {
+            in_edid = 1
+            next
+        }
+
+        in_edid {
+            line = $0
+            gsub(/[[:space:]]/, "", line)
+            if (line ~ /^[[:xdigit:]]+$/) {
+                edid = edid line
+                next
+            }
+            in_edid = 0
+        }
+
+        END {
+            if (saw_output) finish_output()
+            if (matches == 1) {
+                print resolved
+                exit 0
+            }
+            exit (matches == 0 ? 2 : 3)
+        }
+    '
+}
+
+if [[ -x "${BASE_XSETUP}" ]] && ! run_bounded "${COMMAND_TIMEOUT}" "${BASE_XSETUP}"; then
+    diagnose "distribution Xsetup failed; continuing with the greeter"
 fi
 
-[[ -r "${PRIMARY_OUTPUT_FILE}" ]] || exit 0
+[[ -r "${PRIMARY_MONITOR_FILE}" ]] || exit 0
 
 primary_output=''
-IFS= read -r primary_output < "${PRIMARY_OUTPUT_FILE}" || exit 0
+saved_edid=''
+output_seen=0
+edid_seen=0
+state_valid=1
 
-# Hyprland/Xorg output names are simple connector identifiers.  Reject any
-# stale or malformed value before it can become an xrandr argument.
+while IFS='=' read -r key value || [[ -n "${key:-}${value:-}" ]]; do
+    case "${key}" in
+        hypr_output)
+            if (( output_seen )); then
+                state_valid=0
+            fi
+            primary_output="${value}"
+            output_seen=1
+            ;;
+        edid)
+            if (( edid_seen )); then
+                state_valid=0
+            fi
+            saved_edid="${value,,}"
+            edid_seen=1
+            ;;
+        *)
+            state_valid=0
+            ;;
+    esac
+done < "${PRIMARY_MONITOR_FILE}"
+
 case "${primary_output}" in
-    ''|*[![:alnum:]._-]*) exit 0 ;;
+    ''|*[![:alnum:]._-]*) state_valid=0 ;;
+esac
+if [[ ! "${saved_edid}" =~ ^[0-9a-f]+$ ]] \
+    || (( ${#saved_edid} < 256 || ${#saved_edid} % 256 != 0 )); then
+    state_valid=0
+fi
+if (( ! output_seen || ! edid_seen || ! state_valid )); then
+    diagnose "invalid primary-monitor state in ${PRIMARY_MONITOR_FILE}; leaving XRandR unchanged"
+    exit 0
+fi
+
+if ! xrandr_snapshot="$(run_bounded "${COMMAND_TIMEOUT}" "${XRANDR}" --props 2>/dev/null)"; then
+    diagnose "xrandr --props failed; leaving XRandR unchanged"
+    exit 0
+fi
+
+resolved_output="$(resolve_output_by_edid "${saved_edid}" <<< "${xrandr_snapshot}")"
+resolve_status=$?
+case "${resolve_status}" in
+    0) ;;
+    2)
+        diagnose "no connected XRandR output matches saved EDID for ${primary_output}"
+        exit 0
+        ;;
+    3)
+        diagnose "multiple connected XRandR outputs match saved EDID for ${primary_output}"
+        exit 0
+        ;;
+    *)
+        diagnose "failed to parse XRandR EDID properties"
+        exit 0
+        ;;
 esac
 
-if "${XRANDR}" --query | awk -v output="${primary_output}" \
-    '$1 == output && $2 == "connected" { found = 1 } END { exit !found }'; then
-    # A hot-unplug race here must not prevent SDDM from showing its greeter.
-    "${XRANDR}" --output "${primary_output}" --primary || true
+if ! run_bounded "${COMMAND_TIMEOUT}" "${XRANDR}" --output "${resolved_output}" --primary; then
+    diagnose "failed to set XRandR primary output ${resolved_output}; continuing with the greeter"
+    exit 0
 fi
+
+if ! post_query="$(run_bounded "${COMMAND_TIMEOUT}" "${XRANDR}" --query 2>/dev/null)"; then
+    diagnose "cannot verify XRandR primary output ${resolved_output}; continuing with the greeter"
+    exit 0
+fi
+if ! awk -v output="${resolved_output}" \
+    '$1 == output && $2 == "connected" && $3 == "primary" { found = 1 } END { exit !found }' \
+    <<< "${post_query}"; then
+    diagnose "primary-output postcondition failed for ${resolved_output}; continuing with the greeter"
+    exit 0
+fi
+
+geometry="$(awk -v output="${resolved_output}" '
+    $1 == output && $2 == "connected" {
+        for (field = 3; field <= NF; field++) {
+            if ($field ~ /^[0-9]+x[0-9]+[+-][0-9]+[+-][0-9]+$/) {
+                print $field
+                exit
+            }
+        }
+    }
+' <<< "${post_query}")"
+if [[ ! "${geometry}" =~ ^([0-9]+)x([0-9]+)([+-][0-9]+)([+-][0-9]+)$ ]]; then
+    diagnose "cannot determine geometry for XRandR primary output ${resolved_output}"
+    exit 0
+fi
+
+width="${BASH_REMATCH[1]}"
+height="${BASH_REMATCH[2]}"
+x_offset="${BASH_REMATCH[3]}"
+y_offset="${BASH_REMATCH[4]}"
+x_offset="${x_offset#+}"
+y_offset="${y_offset#+}"
+center_x=$((x_offset + width / 2))
+center_y=$((y_offset + height / 2))
+
+if [[ ! -x "${XDOTOOL}" ]]; then
+    diagnose "xdotool is unavailable; pointer was not centered on ${resolved_output}"
+elif ! run_bounded "${POINTER_TIMEOUT}" \
+    "${XDOTOOL}" mousemove "${center_x}" "${center_y}"; then
+    diagnose "xdotool failed to center the pointer on ${resolved_output}"
+fi
+
+exit 0

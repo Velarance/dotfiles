@@ -16,6 +16,75 @@ hypr_ipc() {
         "${EWW_IPC_TIMEOUT}" hyprctl "$@"
 }
 
+hypr_music_target_monitor() {
+    local cursor_json monitors_json target_monitor
+    cursor_json=""
+    cursor_json=$(hypr_ipc cursorpos -j 2>/dev/null) || cursor_json=""
+
+    monitors_json=$(hypr_ipc monitors -j 2>/dev/null) || return 1
+    jq -e 'type == "array"' <<< "${monitors_json}" >/dev/null 2>&1 || return 1
+
+    target_monitor=""
+    if [[ -n "${cursor_json}" ]]; then
+        target_monitor=$(
+            jq -r --argjson cursor "${cursor_json}" '
+                select(type == "array")
+                | $cursor as $cursor_position
+                | select(
+                    ($cursor_position | type) == "object"
+                    and ($cursor_position.x | type) == "number"
+                    and ($cursor_position.y | type) == "number"
+                  )
+                | [
+                    .[]
+                    | . as $monitor
+                    | select(
+                        ($monitor.name | type) == "string"
+                        and $monitor.name != ""
+                        and ($monitor.x | type) == "number"
+                        and ($monitor.y | type) == "number"
+                        and ($monitor.width | type) == "number"
+                        and ($monitor.height | type) == "number"
+                      )
+                    | (($monitor.scale // 1) | if type == "number" then . else 0 end) as $scale
+                    | (($monitor.transform // 0) | if type == "number" then . else 0 end) as $transform
+                    | select($scale > 0 and $monitor.width > 0 and $monitor.height > 0)
+                    | (if ($transform == 1 or $transform == 3 or $transform == 5 or $transform == 7)
+                        then $monitor.height else $monitor.width end) as $pixel_width
+                    | (if ($transform == 1 or $transform == 3 or $transform == 5 or $transform == 7)
+                        then $monitor.width else $monitor.height end) as $pixel_height
+                    | select(
+                        $cursor_position.x >= $monitor.x
+                        and $cursor_position.x < ($monitor.x + ($pixel_width / $scale))
+                        and $cursor_position.y >= $monitor.y
+                        and $cursor_position.y < ($monitor.y + ($pixel_height / $scale))
+                      )
+                    | $monitor.name
+                  ][0] // empty
+            ' <<< "${monitors_json}" 2>/dev/null
+        ) || target_monitor=""
+    fi
+
+    if [[ -z "${target_monitor}" ]]; then
+        target_monitor=$(
+            jq -r '
+                [
+                    .[]
+                    | select(
+                        .focused == true
+                        and (.name | type) == "string"
+                        and .name != ""
+                      )
+                    | .name
+                  ][0] // empty
+            ' <<< "${monitors_json}" 2>/dev/null
+        ) || return 1
+    fi
+
+    [[ -n "${target_monitor}" ]] || return 1
+    printf '%s\n' "${target_monitor}"
+}
+
 eww_music_layer_pids() {
     local layers pids
 
@@ -251,9 +320,16 @@ eww_restart_daemon() {
 }
 
 eww_open_music_overlay_once() {
+    local target_monitor="${1:-}"
+    local -a open_args=(open music)
+
+    if [[ -n "${target_monitor}" ]]; then
+        open_args+=(--screen "${target_monitor}")
+    fi
+
     eww_ensure_daemon || return 1
     eww_ipc update winopen=true >/dev/null 2>&1 || return 1
-    if ! eww_ipc open music >/dev/null 2>&1; then
+    if ! eww_ipc "${open_args[@]}" >/dev/null 2>&1; then
         eww_wait_for_music_layer_to_open && return 0
         return 1
     fi
@@ -261,14 +337,16 @@ eww_open_music_overlay_once() {
 }
 
 eww_open_music_overlay() {
-    if eww_open_music_overlay_once; then
+    local target_monitor="${1:-}"
+
+    if eww_open_music_overlay_once "${target_monitor}"; then
         return 0
     fi
 
     eww_close_music_overlay || return 1
     eww_restart_daemon || return 1
 
-    if ! eww_open_music_overlay_once; then
+    if ! eww_open_music_overlay_once "${target_monitor}"; then
         eww_close_music_overlay || true
         return 1
     fi

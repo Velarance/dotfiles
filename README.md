@@ -101,7 +101,9 @@ Consistent paths via dotfiles environment variables:
 
 The optional SDDM setup installs the vendored Qt6 Amadeus theme.
 It lists every output reported by `hyprctl monitors all`, labels active and disabled outputs, and requires selecting the primary login-screen output.
-The selected connector is stored in `/etc/sddm/primary-output`; SDDM marks it primary when Xorg reports that connector as connected.
+The selected Hyprland connector and its EDID are stored in `/etc/sddm/primary-monitor`.
+SDDM resolves the physical display by EDID even when Xorg renames or reuses a connector, then verifies the primary output and centers the pointer on it.
+The same selection is maintained in the ignored Hyprland `local.conf` as the startup cursor monitor and the default monitor for workspace 1.
 Wallpaper changes do not modify the login theme.
 Existing `/etc/sddm.conf` settings are preserved while the Amadeus override is managed at its highest priority.
 
