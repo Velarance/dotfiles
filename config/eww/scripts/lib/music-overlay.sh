@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 
 EWW_CONFIG="${EWW_CONFIG:-${HOME}/.config/eww}"
+EWW_GDK_MONITOR_HELPER="${EWW_GDK_MONITOR_HELPER:-${EWW_CONFIG}/scripts/gdk-monitor-index.py}"
 EWW_IPC_TIMEOUT="${EWW_IPC_TIMEOUT:-2}"
 EWW_IPC_KILL_AFTER="${EWW_IPC_KILL_AFTER:-0.5}"
 EWW_LAYER_SETTLE_ATTEMPTS="${EWW_LAYER_SETTLE_ATTEMPTS:-20}"
@@ -17,7 +18,7 @@ hypr_ipc() {
 }
 
 hypr_music_target_monitor() {
-    local cursor_json monitors_json target_monitor
+    local cursor_json monitors_json target_monitor target_json target_screen
     cursor_json=""
     cursor_json=$(hypr_ipc cursorpos -j 2>/dev/null) || cursor_json=""
 
@@ -82,7 +83,20 @@ hypr_music_target_monitor() {
     fi
 
     [[ -n "${target_monitor}" ]] || return 1
-    printf '%s\n' "${target_monitor}"
+    target_json=$(
+        jq -ce --arg name "${target_monitor}" \
+            '[.[] | select(.name == $name)][0] // empty' \
+            <<< "${monitors_json}" 2>/dev/null
+    ) || return 1
+
+    [[ -x "${EWW_GDK_MONITOR_HELPER}" ]] || return 1
+    target_screen=$(
+        timeout --foreground --kill-after="${EWW_IPC_KILL_AFTER}" \
+            "${EWW_IPC_TIMEOUT}" "${EWW_GDK_MONITOR_HELPER}" \
+            <<< "${target_json}" 2>/dev/null
+    ) || return 1
+    [[ "${target_screen}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "${target_screen}"
 }
 
 eww_music_layer_pids() {

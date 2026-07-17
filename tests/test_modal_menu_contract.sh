@@ -10,6 +10,7 @@ WIFI="${ROOT}/config/hypr/scripts/rofi-wifi.sh"
 SETTINGS="${ROOT}/config/hypr/scripts/settings.sh"
 CLIPHIST="${ROOT}/scripts/cliphist.sh"
 EWW_OVERLAY="${ROOT}/config/eww/scripts/lib/music-overlay.sh"
+GDK_MONITOR_HELPER="${ROOT}/config/eww/scripts/gdk-monitor-index.py"
 
 fail() {
     printf 'FAIL: %s\n' "$1" >&2
@@ -29,8 +30,13 @@ wait_for_file() {
 
 [[ -r "${HELPER}" ]] || fail "shared modal-menu lock helper is missing"
 [[ -x "${LAUNCHER}" ]] || fail "guarded modal-menu launcher is missing or not executable"
+[[ -x "${GDK_MONITOR_HELPER}" ]] || fail "GDK monitor-index helper is missing or not executable"
+grep -Fq '"python-gobject"' "${ROOT}/lib/packages.conf" \
+    || fail "GDK monitor-index helper dependency must be mandatory"
 
 test_tmp=$(mktemp -d)
+PYTHONPYCACHEPREFIX="${test_tmp}/pycache" python -m py_compile "${GDK_MONITOR_HELPER}" \
+    || fail "GDK monitor-index helper is not Python syntax-valid"
 holder_pid=""
 descendant_pid=""
 wifi_pid=""
@@ -244,6 +250,13 @@ if [[ -n "${FAKE_EWW_LAYER_FLAG:-}" ]]; then
 fi
 FAKE_EWW
 
+cat > "${fake_bin}/gdk-monitor-index" <<'FAKE_GDK_MONITOR_INDEX'
+#!/usr/bin/env bash
+set -euo pipefail
+target=$(cat)
+jq -er 'if .name == "DP-1" then 7 elif .name == "HDMI-A-1" then 4 elif .name == "DVI-D-1" then 9 else error("unknown monitor") end' <<< "${target}"
+FAKE_GDK_MONITOR_INDEX
+
 cat > "${fake_bin}/nmcli" <<'FAKE_NMCLI'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -255,11 +268,12 @@ fi
 exit 2
 FAKE_NMCLI
 
-chmod +x "${fake_bin}/hyprctl" "${fake_bin}/rofi" "${fake_bin}/eww" "${fake_bin}/nmcli"
+chmod +x "${fake_bin}/hyprctl" "${fake_bin}/rofi" "${fake_bin}/eww" "${fake_bin}/nmcli" "${fake_bin}/gdk-monitor-index"
 
 export FAKE_HYPRCTL_LOG="${test_tmp}/hyprctl.log"
 export FAKE_ROFI_LOG="${test_tmp}/rofi.log"
 export FAKE_EWW_LOG="${test_tmp}/eww.log"
+export EWW_GDK_MONITOR_HELPER="${fake_bin}/gdk-monitor-index"
 : > "${FAKE_HYPRCTL_LOG}"
 : > "${FAKE_ROFI_LOG}"
 : > "${FAKE_EWW_LOG}"
@@ -478,7 +492,18 @@ fi
 
 screen_layer_flag="${test_tmp}/screen-layer-open"
 screen_open_count="${test_tmp}/screen-open-count"
-screen_monitors='[{"id":0,"name":"DVI-D-1","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","focused":false,"x":1920,"y":0,"width":2560,"height":1440,"scale":2,"transform":1}]'
+screen_monitors='[{"id":0,"name":"DVI-D-1","model":"SMC27A550U","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","model":"P27FBB-RGGL","focused":false,"x":1920,"y":0,"width":2560,"height":1440,"scale":2,"transform":1}]'
+duplicate_models='[{"id":0,"name":"DVI-D-1","model":"SAME","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","model":"SAME","focused":false,"x":1920,"y":0,"width":1920,"height":1080,"scale":1,"transform":0}]'
+if ! duplicate_screen=$(HOME="${fake_home}" \
+    PATH="${fake_bin}:/usr/bin:/bin" \
+    FAKE_HYPRCTL_MONITORS_JSON="${duplicate_models}" \
+    FAKE_HYPRCTL_CURSORPOS_JSON='{"x":2500,"y":500}' \
+    bash -c 'source "$1"; hypr_music_target_monitor' bash "${EWW_OVERLAY}"); then
+    fail "music target helper failed for duplicate GDK monitor models"
+elif [[ "${duplicate_screen}" != "7" ]]; then
+    fail "music target helper did not use the resolved GDK monitor index"
+fi
+
 /usr/bin/sleep 30 &
 screen_owner_pid=$!
 : > "${FAKE_EWW_LOG}"
@@ -491,7 +516,7 @@ HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
     EWW_LAYER_SETTLE_ATTEMPTS=2 EWW_LAYER_SETTLE_DELAY=0.01 \
     bash "${ROOT}/config/eww/scripts/toggle.sh" \
     || fail "music toggle failed while selecting the monitor under the cursor"
-grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen DP-1" "${FAKE_EWW_LOG}" \
+grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen 7" "${FAKE_EWW_LOG}" \
     || fail "music popup did not prefer the transformed monitor under the cursor over the focused monitor"
 rm -f -- "${screen_layer_flag}"
 
@@ -499,12 +524,12 @@ rm -f -- "${screen_layer_flag}"
 HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
     FAKE_EWW_LAYER_PID="${screen_owner_pid}" \
     FAKE_EWW_LAYER_FLAG="${screen_layer_flag}" \
-    FAKE_HYPRCTL_MONITORS_JSON='[{"id":0,"name":"HDMI-A-1","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","focused":false,"x":1920,"y":0,"width":1920,"height":1080,"scale":1,"transform":0}]' \
+    FAKE_HYPRCTL_MONITORS_JSON='[{"id":0,"name":"HDMI-A-1","model":"SAMSUNG","focused":true,"x":0,"y":0,"width":1920,"height":1080,"scale":1,"transform":0},{"id":1,"name":"DP-1","model":"P27FBB-RGGL","focused":false,"x":1920,"y":0,"width":1920,"height":1080,"scale":1,"transform":0}]' \
     FAKE_HYPRCTL_CURSORPOS_JSON='{invalid-json' \
     EWW_LAYER_SETTLE_ATTEMPTS=2 EWW_LAYER_SETTLE_DELAY=0.01 \
     bash "${ROOT}/config/eww/scripts/toggle.sh" \
     || fail "music toggle failed while falling back to the focused monitor"
-grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen HDMI-A-1" "${FAKE_EWW_LOG}" \
+grep -Fqx -- "-c ${fake_home}/.config/eww open music --screen 4" "${FAKE_EWW_LOG}" \
     || fail "music popup did not fall back to the focused monitor after invalid cursor data"
 rm -f -- "${screen_layer_flag}"
 
@@ -532,7 +557,7 @@ HOME="${fake_home}" PATH="${fake_bin}:/usr/bin:/bin" \
     EWW_LAYER_SETTLE_ATTEMPTS=1 EWW_LAYER_SETTLE_DELAY=0.01 \
     bash "${ROOT}/config/eww/scripts/toggle.sh" \
     || fail "music toggle did not recover after its first open attempt failed"
-[[ $(grep -Fxc -- "-c ${fake_home}/.config/eww open music --screen DP-1" "${FAKE_EWW_LOG}") -eq 2 ]] \
+[[ $(grep -Fxc -- "-c ${fake_home}/.config/eww open music --screen 7" "${FAKE_EWW_LOG}") -eq 2 ]] \
     || fail "music popup lost its target screen while retrying after an Eww restart"
 rm -f -- "${screen_layer_flag}"
 kill "${screen_owner_pid}" 2>/dev/null || true
